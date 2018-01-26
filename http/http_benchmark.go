@@ -87,11 +87,12 @@ func processURL(targetURL string) {
 
 func main() {
 	var (
-		urlInput   string
-		iterations uint
+		urlInput          string
+		iterations, pause uint
 	)
 	flag.StringVar(&urlInput, "url", "http://example.com", "URL to call and get the statistics from")
 	flag.UintVar(&iterations, "iterations", 1, "Number of times to call the given URL during the benchmark")
+	flag.UintVar(&pause, "wait-time", 0, "Number of milliseconds to wait between each call")
 	flag.Parse()
 
 	// Just making sure the url passed is a correct url
@@ -103,6 +104,8 @@ func main() {
 	fmt.Println("DNS step duration,DNS connection shared,time_namelookup,Connect step duration,time_connect,TLS step duration,Headers sent after,Full request sent after,time_pretransfer,First byte received after,time_starttransfer,time_total,num_connects")
 	for ; iterations > 0; iterations-- {
 		processURL(checkedURL)
-		//time.Sleep(1 * time.Second)
+		if pause > 0 {
+			time.Sleep(time.Duration(pause) * time.Millisecond)
+		}
 	}
 }

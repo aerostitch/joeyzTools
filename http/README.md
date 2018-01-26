@@ -2,7 +2,7 @@
 
 ## `dl_and_replay.sh`
 
-Downloads files from s3 and make them process by replay_fom_files.go
+Downloads files from s3 and make them process by `replay_fom_files.go`
 
 ## `replay_fom_files.go`
 
@@ -36,11 +36,13 @@ Usage:
         Number of times to call the given URL during the benchmark (default 1)
   -url string
         URL to call and get the statistics from (default "http://example.com")
+  -wait-time uint
+        Number of milliseconds to wait between each call
 ```
 
 Example:
 ```
-$ go run http/http_benchmark.go -url http://www.example.com -iterations 10
+$ go run http/http_benchmark.go -url http://www.example.com -iterations 10 -wait-time 500
 DNS step duration,DNS connection shared,time_namelookup,Connect step duration,time_connect,TLS step duration,Headers sent after,Full request sent after,time_pretransfer,First byte received after,time_starttransfer,time_total,num_connects
 27,false,27,15,43,0,43,43,43,141,141,141,1
 23,false,23,190,214,0,214,214,214,236,236,236,1
