@@ -51,3 +51,8 @@ Arguments:
         Number of workers used to fetch the metrics datapoints. Env variable: NB_WORKERS (default 5)
 
 ```
+
+## `elb_log_analyzer`
+
+The script in `elb_log_analyzer` is a tool to parse AWS Elastic LoadBalancer
+access logs and push them to a MySQL database.
