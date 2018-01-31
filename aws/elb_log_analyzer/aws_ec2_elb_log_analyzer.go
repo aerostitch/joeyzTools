@@ -138,7 +138,10 @@ func processLine(re *regexp.Regexp, line string) *accessLogEntry {
 // processLocalFile reads a file and process each of the lines and sends them to the
 // given open channel
 func processLocalFile(path string, dataPipe chan *accessLogEntry) {
-	inFile, _ := os.Open(path)
+	inFile, err := os.Open(path)
+	if err != nil {
+		log.Printf("Error while reading file %s: %s\n", path, err)
+	}
 	defer inFile.Close()
 	scanner := bufio.NewScanner(inFile)
 	scanner.Split(bufio.ScanLines)
@@ -148,27 +151,71 @@ func processLocalFile(path string, dataPipe chan *accessLogEntry) {
 	}
 }
 
+// dbCreateTable creates the table if it does not exists
+func dbCreateTable(db *sql.DB, tableName string) {
+	crStmt, err := db.Prepare(fmt.Sprintf("CREATE TABLE IF NOT EXISTS `%s` (`year` INT(4), `month` INT(2), `day` INT(2), `hour` INT(2), `sourceIP` VARCHAR(128), `method` VARCHAR(8), `domain` VARCHAR(256), `scheme` VARCHAR(8), `uri` VARCHAR(512), `userAgent` VARCHAR(512))", tableName))
+	if err != nil {
+		log.Println(err)
+	}
+
+	if _, err = crStmt.Exec(); err != nil {
+		log.Println(err)
+	}
+	if err = crStmt.Close(); err != nil {
+		log.Println(err)
+	}
+}
+
+// insertElt adds an accesslog entry to the table
+func insertElt(db *sql.DB, stmt *sql.Stmt, tx *sql.Tx, elem *accessLogEntry, tableName *string, flagIdx *int) {
+	var err error
+	// Prepared statement in the transaction has to be re-prepared every time we
+	// commit as it closes the transaction
+	if *flagIdx == 0 {
+		tx, err = db.Begin()
+		if err != nil {
+			log.Println(err)
+		}
+		stmt, err = tx.Prepare(fmt.Sprintf("insert into `%s` (`year`, `month`, `day`, `hour`, `sourceIP`, `method`, `domain`, `scheme`, `uri`, `userAgent`) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)", *tableName))
+		if err != nil {
+			log.Println(err)
+		}
+		defer stmt.Close()
+	}
+
+	// sanity
+	uriLen := len(elem.uri)
+	if uriLen > 511 {
+		uriLen = 511
+	}
+	agentLen := len(elem.userAgent)
+	if agentLen > 511 {
+		agentLen = 511
+	}
+	if _, err = stmt.Exec(elem.year, elem.month, elem.day, elem.hour, elem.sourceIP, elem.method, elem.domain, elem.scheme, elem.uri[:uriLen], elem.userAgent[:agentLen]); err != nil {
+		log.Println(err)
+	}
+
+	(*flagIdx)++
+	if *flagIdx > 10000 {
+		if err = tx.Commit(); err != nil {
+			log.Println(err)
+		}
+		*flagIdx = 0
+	}
+}
+
 // Takes the data out of the given channel and pushes it to the given mysql
 // table
 func channelToDB(user, pwd, host, database, tableName string, createTbl bool, dataPipe chan *accessLogEntry) {
 	db, err := sql.Open("mysql", fmt.Sprintf("%s:%s@%s/%s?charset=utf8", user, pwd, host, database))
 	if err != nil {
-		panic(err)
+		log.Fatal(err)
 	}
 	defer db.Close()
 
 	if createTbl {
-		var crStmt *sql.Stmt
-		crStmt, err = db.Prepare(fmt.Sprintf("CREATE TABLE IF NOT EXISTS `%s` (`year` INT(4), `month` INT(2), `day` INT(2), `hour` INT(2), `sourceIP` VARCHAR(128), `method` VARCHAR(8), `domain` VARCHAR(256), `scheme` VARCHAR(8), `uri` VARCHAR(512), `userAgent` VARCHAR(512))", tableName))
-		if err != nil {
-			log.Println(err)
-		}
-
-		_, err = crStmt.Exec()
-		if err != nil {
-			log.Println(err)
-		}
-		crStmt.Close()
+		dbCreateTable(db, tableName)
 	}
 
 	var (
@@ -181,45 +228,14 @@ func channelToDB(user, pwd, host, database, tableName string, createTbl bool, da
 		if elem == nil {
 			continue
 		}
-		if flagIdx == 0 {
-			tx, err = db.Begin()
-			if err != nil {
-				log.Println(err)
-			}
-			stmt, err = tx.Prepare(fmt.Sprintf("insert into `%s` (`year`, `month`, `day`, `hour`, `sourceIP`, `method`, `domain`, `scheme`, `uri`, `userAgent`) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)", tableName))
-			if err != nil {
-				log.Println(err)
-			}
-			defer stmt.Close()
-		}
 
-		uriLen := len(elem.uri)
-		if uriLen > 511 {
-			uriLen = 511
-		}
-		agentLen := len(elem.userAgent)
-		if agentLen > 511 {
-			agentLen = 511
-		}
-		_, err = stmt.Exec(elem.year, elem.month, elem.day, elem.hour, elem.sourceIP, elem.method, elem.domain, elem.scheme, elem.uri[:uriLen], elem.userAgent[:agentLen])
-		if err != nil {
-			log.Println(err)
-		}
+		insertElt(db, stmt, tx, elem, &tableName, &flagIdx)
 
-		flagIdx++
-		if flagIdx > 10000 {
-			err = tx.Commit()
-			if err != nil {
-				log.Println(err)
-			}
-			flagIdx = 0
-		}
 	}
 	if flagIdx != 0 {
-		err = tx.Commit()
-	}
-	if err != nil {
-		log.Println(err)
+		if err = tx.Commit(); err != nil {
+			log.Println(err)
+		}
 	}
 
 	wg.Done()
