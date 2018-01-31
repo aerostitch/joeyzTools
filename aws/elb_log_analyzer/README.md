@@ -15,7 +15,6 @@ To bulk load your files in this case:
 DB_NAME=accesslogs
 TBL=bla
 go run aws_elb_log_analyzer.go  -db-host "tcp(172.17.0.2)" \
-                                -db-create-table \
                                 -db-name ${DB_NAME} \
                                 -db-user root \
                                 -db-pwd my-secret-pw \

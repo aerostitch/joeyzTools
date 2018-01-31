@@ -14,7 +14,6 @@ To bulk load your files in this case:
 DB_NAME=accesslogs
 TBL=bla
 go run aws_elb_log_analyzer.go  -db-host "tcp(172.17.0.2)" \
-																-db-create-table \
 																-db-name ${DB_NAME} \
 																-db-user root \
 																-db-pwd my-secret-pw \
@@ -42,7 +41,7 @@ BUCKET=my-elb-logs
 aws s3 cp --recursive --exclude "*" --include "*2018/*" s3://${BUCKET}/${TBL}/AWSLogs/ /tmp/${TBL}
 find /tmp/${TBL} -type f -name '*.log' -o -name '*.txt' | while read f; do
   echo "Processing $f"
-  go run aws_elb_log_analyzer.go -db-create-table -db-host "tcp(172.17.0.2)" -db-name accesslogs -db-user root -db-pwd my-secret-pw -db-table ${TBL} -file-path $f
+  go run aws_elb_log_analyzer.go -db-host "tcp(172.17.0.2)" -db-name accesslogs -db-user root -db-pwd my-secret-pw -db-table ${TBL} -file-path $f
 done
 mysql -h 172.17.0.2 -u root --password=my-secret-pw --database accesslogs -e "select CONCAT(year, '-', month, '-', day) as date, SUBSTRING_INDEX(userAgent, ' ', 1) as agent, SUBSTRING_INDEX(SUBSTRING_INDEX(REPLACE(uri,'//','/'), '?', 1), '/', 3) as shorturi, count(*) as nbrcalls from \`${TBL}\` where userAgent not like 'Pingdom%' and userAgent != 'ZmEu' group by year, month, day,  SUBSTRING_INDEX(userAgent, ' ', 1), SUBSTRING_INDEX(SUBSTRING_INDEX(REPLACE(uri,'//','/'), '?', 1), '/', 3) order by year, month, day, nbrcalls" -B > /tmp/${TBL}_short.tsv
 
@@ -166,22 +165,9 @@ func dbCreateTable(db *sql.DB, tableName string) {
 	}
 }
 
-// insertElt adds an accesslog entry to the table
-func insertElt(db *sql.DB, stmt *sql.Stmt, tx *sql.Tx, elem *accessLogEntry, tableName *string, flagIdx *int) {
+// dbInsertElt adds an accesslog entry to the table
+func dbInsertElt(stmt *sql.Stmt, elem *accessLogEntry) {
 	var err error
-	// Prepared statement in the transaction has to be re-prepared every time we
-	// commit as it closes the transaction
-	if *flagIdx == 0 {
-		tx, err = db.Begin()
-		if err != nil {
-			log.Println(err)
-		}
-		stmt, err = tx.Prepare(fmt.Sprintf("insert into `%s` (`year`, `month`, `day`, `hour`, `sourceIP`, `method`, `domain`, `scheme`, `uri`, `userAgent`) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)", *tableName))
-		if err != nil {
-			log.Println(err)
-		}
-		defer stmt.Close()
-	}
 
 	// sanity
 	uriLen := len(elem.uri)
@@ -196,27 +182,28 @@ func insertElt(db *sql.DB, stmt *sql.Stmt, tx *sql.Tx, elem *accessLogEntry, tab
 		log.Println(err)
 	}
 
-	(*flagIdx)++
-	if *flagIdx > 10000 {
-		if err = tx.Commit(); err != nil {
+}
+
+// dbCheckForCommit commits the transaction if idx is over maxIdx and resets idx to 0
+func dbCheckForCommit(idx *int, maxIdx int, tx *sql.Tx) {
+	if *idx > maxIdx {
+		if err := tx.Commit(); err != nil {
 			log.Println(err)
 		}
-		*flagIdx = 0
+		*idx = 0
 	}
 }
 
 // Takes the data out of the given channel and pushes it to the given mysql
 // table
-func channelToDB(user, pwd, host, database, tableName string, createTbl bool, dataPipe chan *accessLogEntry) {
+func channelToDB(user, pwd, host, database, tableName string, dataPipe chan *accessLogEntry) {
 	db, err := sql.Open("mysql", fmt.Sprintf("%s:%s@%s/%s?charset=utf8", user, pwd, host, database))
 	if err != nil {
 		log.Fatal(err)
 	}
 	defer db.Close()
 
-	if createTbl {
-		dbCreateTable(db, tableName)
-	}
+	dbCreateTable(db, tableName)
 
 	var (
 		tx   *sql.Tx
@@ -229,14 +216,26 @@ func channelToDB(user, pwd, host, database, tableName string, createTbl bool, da
 			continue
 		}
 
-		insertElt(db, stmt, tx, elem, &tableName, &flagIdx)
-
-	}
-	if flagIdx != 0 {
-		if err = tx.Commit(); err != nil {
-			log.Println(err)
+		// Prepared statement in the transaction has to be re-prepared every time we
+		// commit as it closes the transaction
+		if flagIdx == 0 {
+			tx, err = db.Begin()
+			if err != nil {
+				log.Println(err)
+			}
+			stmt, err = tx.Prepare(fmt.Sprintf("insert into `%s` (`year`, `month`, `day`, `hour`, `sourceIP`, `method`, `domain`, `scheme`, `uri`, `userAgent`) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)", tableName))
+			if err != nil {
+				log.Println(err)
+			}
+			defer stmt.Close()
 		}
+
+		dbInsertElt(stmt, elem)
+
+		flagIdx++
+		dbCheckForCommit(&flagIdx, 10000, tx)
 	}
+	dbCheckForCommit(&flagIdx, 0, tx)
 
 	wg.Done()
 }
@@ -284,7 +283,7 @@ func getLocalFiles(path string) []*string {
 func main() {
 	var (
 		fPath, dbName, dbHost, dbUser, dbPassword, dbTable string
-		dbCreateTable, recursive                           bool
+		recursive                                          bool
 	)
 	flag.BoolVar(&recursive, "recursive", false, "Considers the -file-path input as directory and will search for files to process inside. Environment variable: RECURSIVE")
 	flag.StringVar(&fPath, "file-path", "text", "Path to the log file. If -recursive flag is set, this is considered as a directory. Environment variable: FILE_PATH")
@@ -293,12 +292,11 @@ func main() {
 	flag.StringVar(&dbUser, "db-user", "", "User name to use to connect to the DB. Environment variable: DB_USER")
 	flag.StringVar(&dbPassword, "db-pwd", "", "Password to use to connect to the DB. Environment variable: DB_PWD")
 	flag.StringVar(&dbTable, "db-table", "", "Name of the table to import the data in. Environment variable: DB_TABLE")
-	flag.BoolVar(&dbCreateTable, "db-create-table", false, "Whether to create the table if it does not exists. Environment variable: DB_CREATE_TABLE")
 	envflag.Parse()
 
 	dp := make(chan *accessLogEntry)
 	wg.Add(1)
-	go channelToDB(dbUser, dbPassword, dbHost, dbName, dbTable, dbCreateTable, dp)
+	go channelToDB(dbUser, dbPassword, dbHost, dbName, dbTable, dp)
 
 	// TODO: process s3 file & folder
 	if len(fPath) > 0 {
@@ -307,6 +305,7 @@ func main() {
 			fInput = getLocalFiles(fPath)
 		}
 		for _, f := range fInput {
+			log.Printf("Processing file %s\n", *f)
 			processLocalFile(*f, dp)
 		}
 	}
