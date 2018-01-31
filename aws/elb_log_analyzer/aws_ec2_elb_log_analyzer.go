@@ -146,6 +146,10 @@ func processLocalFile(path string, dataPipe chan *accessLogEntry) {
 	scanner.Split(bufio.ScanLines)
 
 	for scanner.Scan() {
+		// Avoid filling up memory too much
+		if len(dataPipe) > 50000 {
+			time.Sleep(500 * time.Millisecond)
+		}
 		dataPipe <- processLine(classicELBPattern, scanner.Text())
 	}
 }
@@ -185,9 +189,13 @@ func dbInsertElt(stmt *sql.Stmt, elem *accessLogEntry) {
 }
 
 // dbCheckForCommit commits the transaction if idx is over maxIdx and resets idx to 0
-func dbCheckForCommit(idx *int, maxIdx int, tx *sql.Tx) {
+func dbCheckForCommit(idx *int, maxIdx int, stmt *sql.Stmt, tx *sql.Tx) {
 	if *idx > maxIdx {
-		if err := tx.Commit(); err != nil {
+		var err error
+		if err = stmt.Close(); err != nil {
+			log.Println(err)
+		}
+		if err = tx.Commit(); err != nil {
 			log.Println(err)
 		}
 		*idx = 0
@@ -227,15 +235,14 @@ func channelToDB(user, pwd, host, database, tableName string, dataPipe chan *acc
 			if err != nil {
 				log.Println(err)
 			}
-			defer stmt.Close()
 		}
 
 		dbInsertElt(stmt, elem)
 
 		flagIdx++
-		dbCheckForCommit(&flagIdx, 10000, tx)
+		dbCheckForCommit(&flagIdx, 10000, stmt, tx)
 	}
-	dbCheckForCommit(&flagIdx, 0, tx)
+	dbCheckForCommit(&flagIdx, 0, stmt, tx)
 
 	wg.Done()
 }
