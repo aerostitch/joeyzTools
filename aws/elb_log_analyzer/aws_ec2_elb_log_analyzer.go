@@ -1,25 +1,36 @@
 package main
 
-// Parses classic ELB access logs and puts them inside a MySQL/MariaDB table
-// Easy way to get a DB:
-// docker run --name some-mariadb -e MYSQL_ROOT_PASSWORD=my-secret-pw -e MYSQL_DATABASE=accesslogs -p 3306:3306 -d mariadb:latest
-//
-// The bulk load your files:
-// for f in ~/Downloads/*.txt ; do go run aws_elb_log_analyzer.go -db-create-table -db-host "tcp(172.17.0.2)" -db-name accesslogs -db-user root -db-pwd my-secret-pw -db-table bla -file-path $f; done
-// Or:
-// TBL=bla ; find /tmp/${TBL} -type f -name '*.log' -o -name '*.txt' | while read f; do echo "Processing $f"; go run aws_elb_log_analyzer.go -db-create-table -db-host "tcp(172.17.0.2)" -db-name accesslogs -db-user root -db-pwd my-secret-pw -db-table ${TBL} -file-path $f; done
-//
-// And do reports:
-//   - By day and IP
-// select year, month, day, sourceIP, count(*) as nbrcalls from bla group by year, month, day, sourceIP order by nbrcalls;
-//   - By uri
-// select SUBSTRING_INDEX(uri, '?', 1), count(*) as nbrcalls from bla group by SUBSTRING_INDEX(uri, '?', 1) order by nbrcalls;
-//   - By userAgent
-// select SUBSTRING_INDEX(userAgent, ' (', 1), count(*) as nbrcalls from bla group by SUBSTRING_INDEX(userAgent, ' (', 1) order by nbrcalls;
-//   - A bit of filtering
-// select year, month, day, hour, SUBSTRING_INDEX(userAgent, ' (', 1) as agent, SUBSTRING_INDEX(uri, '?', 1) as uri, count(*) as nbrcalls from bla where userAgent not like 'Pingdom%' and userAgent != 'ZmEu' group by year, month, day, hour, SUBSTRING_INDEX(userAgent, ' (', 1), SUBSTRING_INDEX(uri, '?', 1) order by year, month, day, hour, nbrcalls;
-// Usage example in a script:
 /*
+This tool analyzes access logs for classic ELB access logs and pushes them
+inside a MySQL/MariaDB database so that you can generate some reporting on it.
+
+Easy way to get a DB:
+```
+docker run --name some-mariadb -e MYSQL_ROOT_PASSWORD=my-secret-pw -e MYSQL_DATABASE=accesslogs -p 3306:3306 -d mariadb:latest
+```
+
+To bulk load your files in this case:
+```
+DB_NAME=accesslogs
+TBL=bla
+go run aws_elb_log_analyzer.go  -db-host "tcp(172.17.0.2)" \
+																-db-create-table \
+																-db-name ${DB_NAME} \
+																-db-user root \
+																-db-pwd my-secret-pw \
+																-db-table ${TBL} \
+																-recursive \
+																-file-path /tmp/my_local_access_logs/
+```
+
+Custom reports examples based on the imported data (here we exclude the calls from Pingdom and stuffs that we now are script kiddies playing around):
+ * By day and IP: `select year, month, day, sourceIP, count(*) as nbrcalls from bla group by year, month, day, sourceIP order by nbrcalls;`
+ * By uri: `select SUBSTRING_INDEX(uri, '?', 1), count(*) as nbrcalls from bla group by SUBSTRING_INDEX(uri, '?', 1) order by nbrcalls;`
+ * By userAgent: `select SUBSTRING_INDEX(userAgent, ' (', 1), count(*) as nbrcalls from bla group by SUBSTRING_INDEX(userAgent, ' (', 1) order by nbrcalls;`
+ * A bit of filtering: `select year, month, day, hour, SUBSTRING_INDEX(userAgent, ' (', 1) as agent, SUBSTRING_INDEX(uri, '?', 1) as uri, count(*) as nbrcalls from bla where userAgent not like 'Pingdom%' and userAgent != 'ZmEu' group by year, month, day, hour, SUBSTRING_INDEX(userAgent, ' (', 1), SUBSTRING_INDEX(uri, '?', 1) order by year, month, day, hour, nbrcalls;`
+
+Usage example in a script:
+```
 #!/bin/bash
 if [ $# -ne 1 ]; then
   echo "argument required"
@@ -59,6 +70,7 @@ echo "" >> /tmp/${TBL}_summary.tsv
 echo "Top 10 raw uri path" >> /tmp/${TBL}_summary.tsv
 mysql -h 172.17.0.2 -u root --password=my-secret-pw --database accesslogs -e "select * from (select SUBSTRING_INDEX(uri,'?', 1) as uri, count(*) as nbrcalls from \`${TBL}\` where userAgent not like 'Pingdom%' and userAgent != 'ZmEu' group by SUBSTRING_INDEX(uri, '?', 1) order by nbrcalls desc) t limit 10;" -B >> /tmp/${TBL}_summary.tsv
 rm -rf /tmp/${TBL}/
+```
 
 */
 
