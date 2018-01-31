@@ -62,7 +62,7 @@ func MapToCsv(filepath string, header string, data map[uint32]uint64, keyIsDate 
 		if keyIsDate {
 			data, err := time.Parse(intermediateDateForm, strconv.FormatUint(value, 10))
 			if err != nil {
-				log.Printf("Unable to convert the date back from: %f - %s\n", value, err)
+				log.Printf("Unable to convert the date back from: %d - %s\n", value, err)
 			}
 			fmt.Fprintln(writer, data.Format(outDateForm))
 		} else {
@@ -77,9 +77,9 @@ func MapToCsv(filepath string, header string, data map[uint32]uint64, keyIsDate 
 func ProcessRecord(res *as.Result, generations map[uint32]uint64, expirations map[uint32]uint64) {
 	t := time.Now()
 	expDate, err := strconv.ParseUint(t.Add(time.Duration(res.Record.Expiration)*time.Second).Format(intermediateDateForm), 10, 32)
-	exp_date := uint32(expDate)
+	expirationDate := uint32(expDate)
 	if err != nil {
-		log.Printf("Unable to convert the expiration ttl to a uint date: %f - %s\n", res.Record.Expiration, err)
+		log.Printf("Unable to convert the expiration ttl to a uint date: %d - %s\n", res.Record.Expiration, err)
 	}
 	gen := res.Record.Generation
 	if _, ok := generations[gen]; ok {
@@ -87,10 +87,10 @@ func ProcessRecord(res *as.Result, generations map[uint32]uint64, expirations ma
 	} else {
 		generations[gen] = 1
 	}
-	if _, ok := expirations[exp_date]; ok {
-		expirations[exp_date]++
+	if _, ok := expirations[expirationDate]; ok {
+		expirations[expirationDate]++
 	} else {
-		expirations[exp_date] = 1
+		expirations[expirationDate] = 1
 	}
 }
 
