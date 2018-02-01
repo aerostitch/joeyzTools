@@ -4,77 +4,11 @@ package main
 This tool analyzes access logs for classic ELB access logs and pushes them
 inside a MySQL/MariaDB database so that you can generate some reporting on it.
 
-Easy way to get a DB:
-```
-docker run --name some-mariadb -e MYSQL_ROOT_PASSWORD=my-secret-pw -e MYSQL_DATABASE=accesslogs -p 3306:3306 -d mariadb:latest
-```
-
-To bulk load your files in this case:
-```
-DB_NAME=accesslogs
-TBL=bla
-go run aws_elb_log_analyzer.go  -db-host "tcp(172.17.0.2)" \
-																-db-name ${DB_NAME} \
-																-db-user root \
-																-db-pwd my-secret-pw \
-																-db-table ${TBL} \
-																-recursive \
-																-file-path /tmp/my_local_access_logs/
-```
-
-Custom reports examples based on the imported data (here we exclude the calls from Pingdom and stuffs that we now are script kiddies playing around):
- * By day and IP: `select year, month, day, sourceIP, count(*) as nbrcalls from bla group by year, month, day, sourceIP order by nbrcalls;`
- * By uri: `select SUBSTRING_INDEX(uri, '?', 1), count(*) as nbrcalls from bla group by SUBSTRING_INDEX(uri, '?', 1) order by nbrcalls;`
- * By userAgent: `select SUBSTRING_INDEX(userAgent, ' (', 1), count(*) as nbrcalls from bla group by SUBSTRING_INDEX(userAgent, ' (', 1) order by nbrcalls;`
- * A bit of filtering: `select year, month, day, hour, SUBSTRING_INDEX(userAgent, ' (', 1) as agent, SUBSTRING_INDEX(uri, '?', 1) as uri, count(*) as nbrcalls from bla where userAgent not like 'Pingdom%' and userAgent != 'ZmEu' group by year, month, day, hour, SUBSTRING_INDEX(userAgent, ' (', 1), SUBSTRING_INDEX(uri, '?', 1) order by year, month, day, hour, nbrcalls;`
-
-Usage example in a script:
-```
-#!/bin/bash
-if [ $# -ne 1 ]; then
-  echo "argument required"
-  exit 1
-fi
-
-TBL=$1
-BUCKET=my-elb-logs
-aws s3 cp --recursive --exclude "*" --include "*2018/*" s3://${BUCKET}/${TBL}/AWSLogs/ /tmp/${TBL}
-find /tmp/${TBL} -type f -name '*.log' -o -name '*.txt' | while read f; do
-  echo "Processing $f"
-  go run aws_elb_log_analyzer.go -db-host "tcp(172.17.0.2)" -db-name accesslogs -db-user root -db-pwd my-secret-pw -db-table ${TBL} -file-path $f
-done
-mysql -h 172.17.0.2 -u root --password=my-secret-pw --database accesslogs -e "select CONCAT(year, '-', month, '-', day) as date, SUBSTRING_INDEX(userAgent, ' ', 1) as agent, SUBSTRING_INDEX(SUBSTRING_INDEX(REPLACE(uri,'//','/'), '?', 1), '/', 3) as shorturi, count(*) as nbrcalls from \`${TBL}\` where userAgent not like 'Pingdom%' and userAgent != 'ZmEu' group by year, month, day,  SUBSTRING_INDEX(userAgent, ' ', 1), SUBSTRING_INDEX(SUBSTRING_INDEX(REPLACE(uri,'//','/'), '?', 1), '/', 3) order by year, month, day, nbrcalls" -B > /tmp/${TBL}_short.tsv
-
-echo "Requests per day" > /tmp/${TBL}_summary.tsv
-mysql -h 172.17.0.2 -u root --password=my-secret-pw --database accesslogs -e "select CONCAT(year, '-', month, '-', day) as date, count(*) as nbrcalls from \`${TBL}\` where userAgent not like 'Pingdom%' and userAgent != 'ZmEu' group by year, month, day order by year, month, day, nbrcalls" -B >> /tmp/${TBL}_summary.tsv
-echo "" >> /tmp/${TBL}_summary.tsv
-echo "Requests per method and scheme" >> /tmp/${TBL}_summary.tsv
-mysql -h 172.17.0.2 -u root --password=my-secret-pw --database accesslogs -e "select method, scheme, count(*) as nbrcalls from \`${TBL}\` where userAgent not like 'Pingdom%' and userAgent != 'ZmEu' group by method, scheme order by nbrcalls" -B >> /tmp/${TBL}_summary.tsv
-echo "" >> /tmp/${TBL}_summary.tsv
-echo "Top 10 source IP" >> /tmp/${TBL}_summary.tsv
-mysql -h 172.17.0.2 -u root --password=my-secret-pw --database accesslogs -e "select * from (select sourceIP, count(*) as nbrcalls from \`${TBL}\` where userAgent not like 'Pingdom%' and userAgent != 'ZmEu' group by sourceIP order by nbrcalls desc) t limit 10;" -B >> /tmp/${TBL}_summary.tsv
-echo "" >> /tmp/${TBL}_summary.tsv
-echo "Top 10 full user agent" >> /tmp/${TBL}_summary.tsv
-mysql -h 172.17.0.2 -u root --password=my-secret-pw --database accesslogs -e "select * from (select userAgent, count(*) as nbrcalls from \`${TBL}\` where userAgent not like 'Pingdom%' and userAgent != 'ZmEu' group by userAgent order by nbrcalls desc) t limit 10;" -B >> /tmp/${TBL}_summary.tsv
-echo "" >> /tmp/${TBL}_summary.tsv
-echo "Top 10 short user agent" >> /tmp/${TBL}_summary.tsv
-mysql -h 172.17.0.2 -u root --password=my-secret-pw --database accesslogs -e "select * from (select SUBSTRING_INDEX(SUBSTRING_INDEX(userAgent, ' ', 1),'(',1) as userAgent, count(*) as nbrcalls from \`${TBL}\` where userAgent not like 'Pingdom%' and userAgent != 'ZmEu' group by SUBSTRING_INDEX(SUBSTRING_INDEX(userAgent, ' ', 1),'(',1) order by nbrcalls desc) t limit 10;" -B >> /tmp/${TBL}_summary.tsv
-echo "" >> /tmp/${TBL}_summary.tsv
-echo "Top 10 root uri path" >> /tmp/${TBL}_summary.tsv
-mysql -h 172.17.0.2 -u root --password=my-secret-pw --database accesslogs -e "select * from (select SUBSTRING_INDEX(SUBSTRING_INDEX(REPLACE(uri,'//','/'), '?', 1), '/', 2) as root_uri, count(*) as nbrcalls from \`${TBL}\` where userAgent not like 'Pingdom%' and userAgent != 'ZmEu' group by SUBSTRING_INDEX(SUBSTRING_INDEX(REPLACE(uri,'//','/'), '?', 1), '/', 2) order by nbrcalls desc) t limit 10;" -B >> /tmp/${TBL}_summary.tsv
-echo "" >> /tmp/${TBL}_summary.tsv
-echo "Top 10 short uri path" >> /tmp/${TBL}_summary.tsv
-mysql -h 172.17.0.2 -u root --password=my-secret-pw --database accesslogs -e "select * from (select SUBSTRING_INDEX(SUBSTRING_INDEX(REPLACE(uri,'//','/'), '?', 1), '/', 3) as short_uri, count(*) as nbrcalls from \`${TBL}\` where userAgent not like 'Pingdom%' and userAgent != 'ZmEu' group by SUBSTRING_INDEX(SUBSTRING_INDEX(REPLACE(uri,'//','/'), '?', 1), '/', 3) order by nbrcalls desc) t limit 10;" -B >> /tmp/${TBL}_summary.tsv
-echo "" >> /tmp/${TBL}_summary.tsv
-echo "Top 10 raw uri path" >> /tmp/${TBL}_summary.tsv
-mysql -h 172.17.0.2 -u root --password=my-secret-pw --database accesslogs -e "select * from (select SUBSTRING_INDEX(uri,'?', 1) as uri, count(*) as nbrcalls from \`${TBL}\` where userAgent not like 'Pingdom%' and userAgent != 'ZmEu' group by SUBSTRING_INDEX(uri, '?', 1) order by nbrcalls desc) t limit 10;" -B >> /tmp/${TBL}_summary.tsv
-rm -rf /tmp/${TBL}/
-```
-
 */
 
 import (
 	"bufio"
+	"encoding/csv"
 	"flag"
 	"fmt"
 	"log"
@@ -287,10 +221,107 @@ func getLocalFiles(path string) []*string {
 	return result
 }
 
+func dbQueryToCSV(db *sql.DB, query string, csvWriter *csv.Writer) error {
+	rows, err := db.Query(query)
+	if err != nil {
+		return err
+	}
+
+	// Get column names
+	columns, err := rows.Columns()
+	if err != nil {
+		return err
+	}
+	if err = csvWriter.Write(columns); err != nil {
+		return err
+	}
+
+	// Make a slice for the values
+	count := len(columns)
+	values := make([]interface{}, count)
+	scanArgs := make([]interface{}, len(values))
+	for i := range values {
+		scanArgs[i] = &values[i]
+	}
+
+	// Fetch rows
+	for rows.Next() {
+		row := make([]string, count)
+		if err = rows.Scan(scanArgs...); err != nil {
+			return err
+		}
+
+		for i := range columns {
+			var value interface{}
+			rawValue := values[i]
+
+			byteArray, ok := rawValue.([]byte)
+			if ok {
+				value = string(byteArray)
+			} else {
+				value = rawValue
+			}
+			row[i] = fmt.Sprintf("%v", value)
+		}
+
+		if err = csvWriter.Write(row); err != nil {
+			return err
+		}
+	}
+	csvWriter.Flush()
+	return rows.Err()
+}
+
+// generateReport generates a standard report in a summary file
+func generateReport(user, pwd, host, database, tableName, reportPath string) {
+	if len(reportPath) == 0 {
+		log.Println("-report-path flag empty. Skipping report generation")
+		return
+	}
+
+	db, err := sql.Open("mysql", fmt.Sprintf("%s:%s@%s/%s?charset=utf8", user, pwd, host, database))
+	if err != nil {
+		log.Fatal(err)
+	}
+	defer db.Close()
+
+	f, errF := os.Create(reportPath)
+	if errF != nil {
+		log.Fatal(err)
+	}
+	defer f.Close()
+
+	csvWriter := csv.NewWriter(f)
+	queries := []struct {
+		title, query string
+	}{
+		{"Requests per day", "select CONCAT(year, '-', month, '-', day) as date, count(*) as nbrcalls from `" + tableName + "` where userAgent not like 'Pingdom%' and userAgent != 'ZmEu' group by year, month, day order by year, month, day, nbrcalls"},
+		{"Requests per method and scheme", "select method, scheme, count(*) as nbrcalls from `" + tableName + "` where userAgent not like 'Pingdom%' and userAgent != 'ZmEu' group by method, scheme order by nbrcalls desc"},
+		{"Top 10 source IP", "select * from (select sourceIP, count(*) as nbrcalls from `" + tableName + "` where userAgent not like 'Pingdom%' and userAgent != 'ZmEu' group by sourceIP order by nbrcalls desc) t limit 10"},
+		{"Top 10 full user agent", "select * from (select userAgent, count(*) as nbrcalls from `" + tableName + "` where userAgent not like 'Pingdom%' and userAgent != 'ZmEu' group by userAgent order by nbrcalls desc) t limit 10"},
+		{"Top 10 short user agent", "select * from (select SUBSTRING_INDEX(SUBSTRING_INDEX(userAgent, ' ', 1),'(',1) as userAgent, count(*) as nbrcalls from `" + tableName + "` where userAgent not like 'Pingdom%' and userAgent != 'ZmEu' group by SUBSTRING_INDEX(SUBSTRING_INDEX(userAgent, ' ', 1),'(',1) order by nbrcalls desc) t limit 10"},
+		{"Top 10 root uri path", "select * from (select SUBSTRING_INDEX(SUBSTRING_INDEX(REPLACE(uri,'//','/'), '?', 1), '/', 2) as root_uri, count(*) as nbrcalls from `" + tableName + "` where userAgent not like 'Pingdom%' and userAgent != 'ZmEu' group by SUBSTRING_INDEX(SUBSTRING_INDEX(REPLACE(uri,'//','/'), '?', 1), '/', 2) order by nbrcalls desc) t limit 10"},
+		{"Top 10 short uri path", "select * from (select SUBSTRING_INDEX(SUBSTRING_INDEX(REPLACE(uri,'//','/'), '?', 1), '/', 3) as short_uri, count(*) as nbrcalls from `" + tableName + "` where userAgent not like 'Pingdom%' and userAgent != 'ZmEu' group by SUBSTRING_INDEX(SUBSTRING_INDEX(REPLACE(uri,'//','/'), '?', 1), '/', 3) order by nbrcalls desc) t limit 10"},
+		{"Top 10 raw uri path", "select * from (select SUBSTRING_INDEX(uri,'?', 1) as uri, count(*) as nbrcalls from `" + tableName + "` where userAgent not like 'Pingdom%' and userAgent != 'ZmEu' group by SUBSTRING_INDEX(uri, '?', 1) order by nbrcalls desc) t limit 10"},
+	}
+	for _, q := range queries {
+		if err = csvWriter.Write([]string{q.title}); err != nil {
+			log.Fatal(err)
+		}
+		if err = dbQueryToCSV(db, q.query, csvWriter); err != nil {
+			log.Fatal(err)
+		}
+		if err = csvWriter.Write(nil); err != nil {
+			log.Fatal(err)
+		}
+		csvWriter.Flush()
+	}
+}
+
 func main() {
 	var (
-		fPath, dbName, dbHost, dbUser, dbPassword, dbTable string
-		recursive                                          bool
+		fPath, dbName, dbHost, dbUser, dbPassword, dbTable, reportFile string
+		recursive                                                      bool
 	)
 	flag.BoolVar(&recursive, "recursive", false, "Considers the -file-path input as directory and will search for files to process inside. Environment variable: RECURSIVE")
 	flag.StringVar(&fPath, "file-path", "text", "Path to the log file. If -recursive flag is set, this is considered as a directory. Environment variable: FILE_PATH")
@@ -299,6 +330,7 @@ func main() {
 	flag.StringVar(&dbUser, "db-user", "", "User name to use to connect to the DB. Environment variable: DB_USER")
 	flag.StringVar(&dbPassword, "db-pwd", "", "Password to use to connect to the DB. Environment variable: DB_PWD")
 	flag.StringVar(&dbTable, "db-table", "", "Name of the table to import the data in. Environment variable: DB_TABLE")
+	flag.StringVar(&reportFile, "report-path", "", "Path of the standard report summary you want to generate. If left empty, the report won't be generated. Environment variable: REPORT_PATH")
 	envflag.Parse()
 
 	dp := make(chan *accessLogEntry)
@@ -318,4 +350,5 @@ func main() {
 	}
 	close(dp)
 	wg.Wait()
+	generateReport(dbUser, dbPassword, dbHost, dbName, dbTable, reportFile)
 }

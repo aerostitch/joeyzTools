@@ -10,7 +10,7 @@ Easy way to get a DB:
 docker run --name some-mariadb -e MYSQL_ROOT_PASSWORD=my-secret-pw -e MYSQL_DATABASE=accesslogs -p 3306:3306 -d mariadb:latest
 ```
 
-To bulk load your files in this case:
+To bulk load your local files in this case (without generating the standard reports):
 ```
 DB_NAME=accesslogs
 TBL=bla
@@ -20,7 +20,21 @@ go run aws_elb_log_analyzer.go  -db-host "tcp(172.17.0.2)" \
                                 -db-pwd my-secret-pw \
                                 -db-table ${TBL} \
                                 -recursive \
-                                -file-path /tmp/my_local_access_logs/
+                                -file-path /tmp/${TBL}
+```
+
+Bulk loading and generate the standard report:
+```
+DB_NAME=accesslogs
+TBL=bla
+go run aws_elb_log_analyzer.go  -db-host "tcp(172.17.0.2)" \
+                                -db-name ${DB_NAME} \
+                                -db-user root \
+                                -db-pwd my-secret-pw \
+                                -db-table ${TBL} \
+                                -recursive \
+                                -file-path /tmp/${TBL} \
+                                -report-path /tmp/${TBL}_summary.csv
 ```
 
 Custom reports examples based on the imported data (here we exclude the calls from Pingdom and stuffs that we now are script kiddies playing around):
