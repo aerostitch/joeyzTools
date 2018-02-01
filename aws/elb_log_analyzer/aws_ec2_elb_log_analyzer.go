@@ -3,7 +3,6 @@ package main
 /*
 This tool analyzes access logs for classic ELB access logs and pushes them
 inside a MySQL/MariaDB database so that you can generate some reporting on it.
-
 */
 
 import (
@@ -324,7 +323,7 @@ func main() {
 		recursive                                                      bool
 	)
 	flag.BoolVar(&recursive, "recursive", false, "Considers the -file-path input as directory and will search for files to process inside. Environment variable: RECURSIVE")
-	flag.StringVar(&fPath, "file-path", "text", "Path to the log file. If -recursive flag is set, this is considered as a directory. Environment variable: FILE_PATH")
+	flag.StringVar(&fPath, "file-path", "", "Path to the log file. If -recursive flag is set, this is considered as a directory. Environment variable: FILE_PATH")
 	flag.StringVar(&dbName, "db-name", "accesslogs", "Name of the DB to connect to. Environment variable: DB_NAME")
 	flag.StringVar(&dbHost, "db-host", "", "Name of the DB server to connect to. Environment variable: DB_HOST")
 	flag.StringVar(&dbUser, "db-user", "", "User name to use to connect to the DB. Environment variable: DB_USER")
@@ -350,5 +349,6 @@ func main() {
 	}
 	close(dp)
 	wg.Wait()
+	log.Printf("Generating report")
 	generateReport(dbUser, dbPassword, dbHost, dbName, dbTable, reportFile)
 }

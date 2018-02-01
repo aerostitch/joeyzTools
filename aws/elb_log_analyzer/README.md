@@ -37,6 +37,18 @@ go run aws_elb_log_analyzer.go  -db-host "tcp(172.17.0.2)" \
                                 -report-path /tmp/${TBL}_summary.csv
 ```
 
+Only generate the standard report:
+```
+DB_NAME=accesslogs
+TBL=bla
+go run aws_elb_log_analyzer.go  -db-host "tcp(172.17.0.2)" \
+                                -db-name ${DB_NAME} \
+                                -db-user root \
+                                -db-pwd my-secret-pw \
+                                -db-table ${TBL} \
+                                -report-path /tmp/${TBL}_summary.csv
+```
+
 Custom reports examples based on the imported data (here we exclude the calls from Pingdom and stuffs that we now are script kiddies playing around):
  * By day and IP: `select year, month, day, sourceIP, count(*) as nbrcalls from bla group by year, month, day, sourceIP order by nbrcalls;`
  * By uri: `select SUBSTRING_INDEX(uri, '?', 1), count(*) as nbrcalls from bla group by SUBSTRING_INDEX(uri, '?', 1) order by nbrcalls;`
