@@ -103,10 +103,10 @@ func processS3Files(bucket, path string, dataPipe chan *accessLogEntry) {
 
 // processS3File process a single s3 file and sends its content to the channel
 func processS3File(bucket string, sess *session.Session, dataPipe chan *accessLogEntry, fchan chan string) {
-	buff := &aws.WriteAtBuffer{}
 	s3dl := s3manager.NewDownloader(sess)
 	for path := range fchan {
 		log.Printf("Processing s3 file: s3://%s/%s", bucket, path)
+		buff := &aws.WriteAtBuffer{}
 		_, err := s3dl.Download(buff, &s3.GetObjectInput{
 			Bucket: aws.String(bucket),
 			Key:    aws.String(path),
