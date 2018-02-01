@@ -7,6 +7,8 @@ inside a MySQL/MariaDB database so that you can generate some reporting on it.
 
 import (
 	"bufio"
+	"bytes"
+	"database/sql"
 	"encoding/csv"
 	"flag"
 	"fmt"
@@ -18,12 +20,15 @@ import (
 	"sync"
 	"time"
 
-	"database/sql"
+	"github.com/aws/aws-sdk-go/aws"
+	"github.com/aws/aws-sdk-go/aws/session"
+	"github.com/aws/aws-sdk-go/service/s3"
+	"github.com/aws/aws-sdk-go/service/s3/s3manager"
 	_ "github.com/go-sql-driver/mysql"
 	"github.com/gobike/envflag"
 )
 
-var wg sync.WaitGroup
+var wg, s3wg sync.WaitGroup
 var classicELBPattern = regexp.MustCompile(`^([^ ]*) ([^ ]*) ([^ ]*):([0-9]*) ([^ ]*)[:\-]([0-9]*) ([-.0-9]*) ([-.0-9]*) ([-.0-9]*) (|[-0-9]*) (-|[-0-9]*) ([-0-9]*) ([-0-9]*) "([^ ]*) ([^ ]*) (- |[^ ]*)" "([^"]*)" ([A-Z0-9-]+) ([A-Za-z0-9.-]*)$`)
 
 type accessLogEntry struct {
@@ -65,6 +70,64 @@ func processLine(re *regexp.Regexp, line string) *accessLogEntry {
 
 	entry.userAgent = result[17]
 	return &entry
+}
+
+// processS3Files processes each file found in the given key
+func processS3Files(bucket, path string, dataPipe chan *accessLogEntry) {
+	sess := session.Must(session.NewSessionWithOptions(session.Options{
+		SharedConfigState: session.SharedConfigEnable,
+	}))
+
+	fchan := make(chan string)
+	// s3 files are processed in parallel by groups of C5maxParallelFiles
+	for i := 0; i <= 5; i++ {
+		s3wg.Add(1)
+		go processS3File(bucket, sess, dataPipe, fchan)
+	}
+
+	svc := s3.New(sess)
+	params := &s3.ListObjectsInput{Bucket: &bucket, Prefix: &path}
+	errLst := svc.ListObjectsPages(params, func(page *s3.ListObjectsOutput, lastPage bool) bool {
+		for _, obj := range page.Contents {
+			fchan <- *obj.Key
+		}
+
+		return !lastPage
+	})
+	if errLst != nil {
+		log.Println(errLst)
+	}
+	close(fchan)
+	s3wg.Wait()
+}
+
+// processS3File process a single s3 file and sends its content to the channel
+func processS3File(bucket string, sess *session.Session, dataPipe chan *accessLogEntry, fchan chan string) {
+	buff := &aws.WriteAtBuffer{}
+	s3dl := s3manager.NewDownloader(sess)
+	for path := range fchan {
+		log.Printf("Processing s3 file: s3://%s/%s", bucket, path)
+		_, err := s3dl.Download(buff, &s3.GetObjectInput{
+			Bucket: aws.String(bucket),
+			Key:    aws.String(path),
+		})
+		if err != nil {
+			log.Println(err)
+		}
+
+		rdr := bytes.NewReader(buff.Bytes())
+		scanner := bufio.NewScanner(rdr)
+		scanner.Split(bufio.ScanLines)
+
+		for scanner.Scan() {
+			// Avoid filling up memory too much
+			if len(dataPipe) > 50000 {
+				time.Sleep(500 * time.Millisecond)
+			}
+			dataPipe <- processLine(classicELBPattern, scanner.Text())
+		}
+	}
+	s3wg.Done()
 }
 
 // processLocalFile reads a file and process each of the lines and sends them to the
@@ -319,8 +382,8 @@ func generateReport(user, pwd, host, database, tableName, reportPath string) {
 
 func main() {
 	var (
-		fPath, dbName, dbHost, dbUser, dbPassword, dbTable, reportFile string
-		recursive                                                      bool
+		fPath, dbName, dbHost, dbUser, dbPassword, dbTable, reportFile, s3Bucket, s3Path string
+		recursive                                                                        bool
 	)
 	flag.BoolVar(&recursive, "recursive", false, "Considers the -file-path input as directory and will search for files to process inside. Environment variable: RECURSIVE")
 	flag.StringVar(&fPath, "file-path", "", "Path to the log file. If -recursive flag is set, this is considered as a directory. Environment variable: FILE_PATH")
@@ -330,13 +393,14 @@ func main() {
 	flag.StringVar(&dbPassword, "db-pwd", "", "Password to use to connect to the DB. Environment variable: DB_PWD")
 	flag.StringVar(&dbTable, "db-table", "", "Name of the table to import the data in. Environment variable: DB_TABLE")
 	flag.StringVar(&reportFile, "report-path", "", "Path of the standard report summary you want to generate. If left empty, the report won't be generated. Environment variable: REPORT_PATH")
+	flag.StringVar(&s3Bucket, "s3-bucket", "", "Name of the bucket where your access logs are stored. Incompatible with -file-path. Only specify it if you want to read your access logs directly from s3. Environment variable: S3_BUCKET")
+	flag.StringVar(&s3Path, "s3-path", "", "Path in the s3 bucket where the access logs are stored. Important: -recursive is not needed for s3. The script will look for all the files in the directory if the provided s3-path is a folder. Environment variable: S3_PATH")
 	envflag.Parse()
 
 	dp := make(chan *accessLogEntry)
 	wg.Add(1)
 	go channelToDB(dbUser, dbPassword, dbHost, dbName, dbTable, dp)
 
-	// TODO: process s3 file & folder
 	if len(fPath) > 0 {
 		fInput := []*string{&fPath}
 		if recursive {
@@ -346,6 +410,9 @@ func main() {
 			log.Printf("Processing file %s\n", *f)
 			processLocalFile(*f, dp)
 		}
+	}
+	if len(s3Bucket) > 0 {
+		processS3Files(s3Bucket, s3Path, dp)
 	}
 	close(dp)
 	wg.Wait()

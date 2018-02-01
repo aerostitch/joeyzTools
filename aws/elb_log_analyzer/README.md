@@ -2,8 +2,9 @@
 
 ## `aws_ec2_elb_log_analyzer.go`
 
-This tool analyzes access logs for classic ELB access logs and pushes them
-inside a MySQL/MariaDB database so that you can generate some reporting on it.
+This tool analyzes access logs for classic ELB access logs (from local files or
+from files stored in an s3 bucket), pushes them inside a MySQL/MariaDB
+database and generate a csv that summarizes your access logs usage (optionally).
 
 Easy way to get a DB:
 ```
@@ -23,7 +24,22 @@ go run aws_elb_log_analyzer.go  -db-host "tcp(172.17.0.2)" \
                                 -file-path /tmp/${TBL}
 ```
 
-Bulk loading and generate the standard report:
+
+Bulk loading from S3 and generate the standard report:
+```
+DB_NAME=accesslogs
+TBL=bla
+BUCKET_NAME=my-elb-logs-bucket
+go run aws_elb_log_analyzer.go  -db-host "tcp(172.17.0.2)" \
+                                -db-name ${DB_NAME} \
+                                -db-user root \
+                                -db-pwd my-secret-pw \
+                                -db-table ${TBL} \
+                                -s3-bucket ${BUCKET_NAME} \
+                                -s3-path ${TBL}/AWSLogs
+```
+
+Bulk loading from local files and generate the standard report:
 ```
 DB_NAME=accesslogs
 TBL=bla
@@ -48,6 +64,8 @@ go run aws_elb_log_analyzer.go  -db-host "tcp(172.17.0.2)" \
                                 -db-table ${TBL} \
                                 -report-path /tmp/${TBL}_summary.csv
 ```
+
+Note that you can also go into your DB and generate your own custom reports...
 
 Custom reports examples based on the imported data (here we exclude the calls from Pingdom and stuffs that we now are script kiddies playing around):
  * By day and IP: `select year, month, day, sourceIP, count(*) as nbrcalls from bla group by year, month, day, sourceIP order by nbrcalls;`
