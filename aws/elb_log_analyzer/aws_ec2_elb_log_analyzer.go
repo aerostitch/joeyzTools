@@ -32,8 +32,8 @@ var wg, s3wg sync.WaitGroup
 var classicELBPattern = regexp.MustCompile(`^([^ ]*) ([^ ]*) ([^ ]*):([0-9]*) ([^ ]*)[:\-]([0-9]*) ([-.0-9]*) ([-.0-9]*) ([-.0-9]*) (|[-0-9]*) (-|[-0-9]*) ([-0-9]*) ([-0-9]*) "([^ ]*) ([^ ]*) (- |[^ ]*)" "([^"]*)" ([A-Z0-9-]+) ([A-Za-z0-9.-]*)$`)
 
 type accessLogEntry struct {
-	year, month, day, hour                           int
-	sourceIP, method, domain, scheme, uri, userAgent string
+	year, month, day, hour                                                                 int
+	sourceIP, method, domain, scheme, uri, userAgent, elbResponseCode, backendResponseCode string
 }
 
 // processLine takes a line and the compiled regex and returns a accessLogEntry
@@ -58,6 +58,8 @@ func processLine(re *regexp.Regexp, line string) *accessLogEntry {
 
 	entry.sourceIP = result[3]
 	entry.method = result[14]
+	entry.elbResponseCode = result[10]
+	entry.backendResponseCode = result[11]
 
 	u, err := url.Parse(result[15])
 	if err != nil {
@@ -152,7 +154,7 @@ func processLocalFile(path string, dataPipe chan *accessLogEntry) {
 
 // dbCreateTable creates the table if it does not exists
 func dbCreateTable(db *sql.DB, tableName string) {
-	crStmt, err := db.Prepare(fmt.Sprintf("CREATE TABLE IF NOT EXISTS `%s` (`year` INT(4), `month` INT(2), `day` INT(2), `hour` INT(2), `sourceIP` VARCHAR(128), `method` VARCHAR(8), `domain` VARCHAR(256), `scheme` VARCHAR(8), `uri` VARCHAR(512), `userAgent` VARCHAR(512))", tableName))
+	crStmt, err := db.Prepare(fmt.Sprintf("CREATE TABLE IF NOT EXISTS `%s` (`year` INT(4), `month` INT(2), `day` INT(2), `hour` INT(2), `sourceIP` VARCHAR(128), `method` VARCHAR(8), `domain` VARCHAR(256), `scheme` VARCHAR(8), `uri` VARCHAR(512), `userAgent` VARCHAR(512), `elbResponseCode` VARCHAR(4), `backendResponseCode` VARCHAR(4))", tableName))
 	if err != nil {
 		log.Println(err)
 	}
@@ -178,7 +180,7 @@ func dbInsertElt(stmt *sql.Stmt, elem *accessLogEntry) {
 	if agentLen > 511 {
 		agentLen = 511
 	}
-	if _, err = stmt.Exec(elem.year, elem.month, elem.day, elem.hour, elem.sourceIP, elem.method, elem.domain, elem.scheme, elem.uri[:uriLen], elem.userAgent[:agentLen]); err != nil {
+	if _, err = stmt.Exec(elem.year, elem.month, elem.day, elem.hour, elem.sourceIP, elem.method, elem.domain, elem.scheme, elem.uri[:uriLen], elem.userAgent[:agentLen], elem.elbResponseCode, elem.backendResponseCode); err != nil {
 		log.Println(err)
 	}
 
@@ -227,7 +229,7 @@ func channelToDB(user, pwd, host, database, tableName string, dataPipe chan *acc
 			if err != nil {
 				log.Println(err)
 			}
-			stmt, err = tx.Prepare(fmt.Sprintf("insert into `%s` (`year`, `month`, `day`, `hour`, `sourceIP`, `method`, `domain`, `scheme`, `uri`, `userAgent`) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)", tableName))
+			stmt, err = tx.Prepare(fmt.Sprintf("insert into `%s` (`year`, `month`, `day`, `hour`, `sourceIP`, `method`, `domain`, `scheme`, `uri`, `userAgent`, `elbResponseCode`, `backendResponseCode`) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)", tableName))
 			if err != nil {
 				log.Println(err)
 			}
@@ -359,12 +361,15 @@ func generateReport(user, pwd, host, database, tableName, reportPath string) {
 	}{
 		{"Requests per day", "select CONCAT(year, '-', month, '-', day) as date, count(*) as nbrcalls from `" + tableName + "` where userAgent not like 'Pingdom%' and userAgent != 'ZmEu' group by year, month, day order by year, month, day, nbrcalls"},
 		{"Requests per method and scheme", "select method, scheme, count(*) as nbrcalls from `" + tableName + "` where userAgent not like 'Pingdom%' and userAgent != 'ZmEu' group by method, scheme order by nbrcalls desc"},
+		{"Requests per HTTP response code", "select elbResponseCode, backendResponseCode, count(*) as nbrcalls from `" + tableName + "` where userAgent not like 'Pingdom%' and userAgent != 'ZmEu' group by elbResponseCode, backendResponseCode order by nbrcalls desc"},
 		{"Top 10 source IP", "select * from (select sourceIP, count(*) as nbrcalls from `" + tableName + "` where userAgent not like 'Pingdom%' and userAgent != 'ZmEu' group by sourceIP order by nbrcalls desc) t limit 10"},
 		{"Top 10 full user agent", "select * from (select userAgent, count(*) as nbrcalls from `" + tableName + "` where userAgent not like 'Pingdom%' and userAgent != 'ZmEu' group by userAgent order by nbrcalls desc) t limit 10"},
 		{"Top 10 short user agent", "select * from (select SUBSTRING_INDEX(SUBSTRING_INDEX(userAgent, ' ', 1),'(',1) as userAgent, count(*) as nbrcalls from `" + tableName + "` where userAgent not like 'Pingdom%' and userAgent != 'ZmEu' group by SUBSTRING_INDEX(SUBSTRING_INDEX(userAgent, ' ', 1),'(',1) order by nbrcalls desc) t limit 10"},
 		{"Top 10 root uri path", "select * from (select SUBSTRING_INDEX(SUBSTRING_INDEX(REPLACE(uri,'//','/'), '?', 1), '/', 2) as root_uri, count(*) as nbrcalls from `" + tableName + "` where userAgent not like 'Pingdom%' and userAgent != 'ZmEu' group by SUBSTRING_INDEX(SUBSTRING_INDEX(REPLACE(uri,'//','/'), '?', 1), '/', 2) order by nbrcalls desc) t limit 10"},
 		{"Top 10 short uri path", "select * from (select SUBSTRING_INDEX(SUBSTRING_INDEX(REPLACE(uri,'//','/'), '?', 1), '/', 3) as short_uri, count(*) as nbrcalls from `" + tableName + "` where userAgent not like 'Pingdom%' and userAgent != 'ZmEu' group by SUBSTRING_INDEX(SUBSTRING_INDEX(REPLACE(uri,'//','/'), '?', 1), '/', 3) order by nbrcalls desc) t limit 10"},
 		{"Top 10 raw uri path", "select * from (select SUBSTRING_INDEX(uri,'?', 1) as uri, count(*) as nbrcalls from `" + tableName + "` where userAgent not like 'Pingdom%' and userAgent != 'ZmEu' group by SUBSTRING_INDEX(uri, '?', 1) order by nbrcalls desc) t limit 10"},
+		{"Top 10 source IP and response code", "select * from (select sourceIP, elbResponseCode, backendResponseCode, count(*) as nbrcalls from `" + tableName + "` where userAgent not like 'Pingdom%' and userAgent != 'ZmEu' group by sourceIP, elbResponseCode, backendResponseCode order by nbrcalls desc) t limit 10"},
+		{"Top 10 short uri path and response code", "select * from (select SUBSTRING_INDEX(SUBSTRING_INDEX(REPLACE(uri,'//','/'), '?', 1), '/', 3) as short_uri, elbResponseCode, backendResponseCode, count(*) as nbrcalls from `" + tableName + "` where userAgent not like 'Pingdom%' and userAgent != 'ZmEu' group by SUBSTRING_INDEX(SUBSTRING_INDEX(REPLACE(uri,'//','/'), '?', 1), '/', 3), elbResponseCode, backendResponseCode order by nbrcalls desc) t limit 10"},
 	}
 	for _, q := range queries {
 		if err = csvWriter.Write([]string{q.title}); err != nil {
