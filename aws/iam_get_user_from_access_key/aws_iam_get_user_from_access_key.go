@@ -12,7 +12,7 @@ import (
 
 func main() {
 
-	aws_key_filter := flag.String("filter-key", "", "Aws access key to look for. If not provided, will list all of them.")
+	awsKeyFilter := flag.String("filter-key", "", "Aws access key to look for. If not provided, will list all of them.")
 	flag.Parse()
 
 	sess := session.Must(session.NewSessionWithOptions(session.Options{
@@ -27,7 +27,7 @@ func main() {
 		panic(err)
 	}
 
-	//fmt.Println(len(users.Users), len(*aws_key_filter))
+	//fmt.Println(len(users.Users), len(*awsKeyFilter))
 	for _, user := range users.Users {
 		// Checks for the ley of the user
 		keyParams := &iam.ListAccessKeysInput{UserName: user.UserName}
@@ -36,8 +36,8 @@ func main() {
 			panic(err)
 		}
 		for _, key := range keys.AccessKeyMetadata {
-			if len(*aws_key_filter) > 0 {
-				if *(key.AccessKeyId) == *aws_key_filter {
+			if len(*awsKeyFilter) > 0 {
+				if *(key.AccessKeyId) == *awsKeyFilter {
 					fmt.Println(*(key.UserName), "-", *(key.AccessKeyId))
 					return
 				}
