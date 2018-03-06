@@ -1,0 +1,8 @@
+language: go
+sudo: false
+
+before_install:
+  - go get github.com/golang/lint/golint
+
+go:
+  - 1.x
