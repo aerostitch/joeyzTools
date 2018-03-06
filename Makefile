@@ -1,7 +1,7 @@
 default: fmt lint test
 
 dep:
-	go get -v ./...
+	go get -t -v ./...
 
 fmt:
 	@[ $$(gofmt -l . | wc -l) -gt 0 ] && echo "Code differs from gofmt's style" && exit 1 || true
