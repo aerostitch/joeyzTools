@@ -1,4 +1,4 @@
-default: fmt lint test
+default: dep fmt lint test
 
 dep:
 	go get -t -v ./...
