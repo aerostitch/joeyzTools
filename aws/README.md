@@ -24,3 +24,7 @@ monthly report for the PutMetrics operation.
 
 The script in `elb_log_analyzer` is a tool to parse AWS Elastic LoadBalancer
 access logs and push them to a MySQL database.
+
+## `s3_reporter`
+
+This script generates reports about files age, extensions, size and other attributes for one or all of your s3 buckets.
