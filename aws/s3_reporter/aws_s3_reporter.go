@@ -64,7 +64,7 @@ func getObjectStats(bucketName *string, obj *s3.Object) {
 	if lastChar != "/" {
 		ext := path.Ext(*obj.Key)
 		lastMod := (*obj.LastModified).UTC()
-		mod := fmt.Sprintf("%d-%d-01", lastMod.Year(), lastMod.Month())
+		mod := fmt.Sprintf("%d-%02d-01", lastMod.Year(), lastMod.Month())
 		root := (strings.Split(*obj.Key, "/"))[0]
 		increment(report[*bucketName], obj.Size, obj.StorageClass, &ext, &mod, &root, true)
 	}

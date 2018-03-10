@@ -3,6 +3,7 @@ package main
 import (
 	"encoding/csv"
 	"fmt"
+	"sort"
 	"strconv"
 	"sync"
 )
@@ -185,8 +186,14 @@ func reportUint64(csvWriter *csv.Writer, ctr map[string]uint64, title string, he
 		if err = csvWriter.Write(headers); err != nil {
 			return err
 		}
-		for k, v := range ctr {
-			if err = csvWriter.Write([]string{k, strconv.FormatUint(v, 10)}); err != nil {
+		// To store the keys in slice in sorted order
+		var keys []string
+		for k := range ctr {
+			keys = append(keys, k)
+		}
+		sort.Strings(keys)
+		for _, k := range keys {
+			if err = csvWriter.Write([]string{k, strconv.FormatUint(ctr[k], 10)}); err != nil {
 				return err
 			}
 		}
