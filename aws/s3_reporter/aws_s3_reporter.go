@@ -80,29 +80,29 @@ func reportCsv(filePath string) {
 
 	csvWriter := csv.NewWriter(f)
 	if err := csvWriter.Write([]string{"Repartition of file sizes by buckets"}); err != nil {
-		log.Fatal("csvWriter.Write returned: %s", err)
+		log.Fatalf("csvWriter.Write returned: %s", err)
 	}
 	header := []string{"Bucket name", "Total number of files", "Total size", "<1KB", "1KB-10KB", "10KB-100KB", "100KB-1MB", "1MB-10MB", "10MB-100MB", "100MB-1GB", "1GB-10GB", "10GB-100GB", "100GB+"}
 	if err := csvWriter.Write(header); err != nil {
-		log.Fatal("csvWriter.Write returned: %s", err)
+		log.Fatalf("csvWriter.Write returned: %s", err)
 	}
 	if err := reportSizing(csvWriter, report); err != nil {
-		log.Fatal("reportSizing returned: %s", err)
+		log.Fatalf("reportSizing returned: %s", err)
 	}
 
 	for bucket, stats := range report {
 		if err := reportByRoot(csvWriter, bucket, stats); err != nil {
-			log.Fatal("reportByRoot returned: %s", err)
+			log.Fatalf("reportByRoot returned: %s", err)
 		}
 
 		if err := reportUint64(csvWriter, stats.storageCount, fmt.Sprintf("Repartition of files for bucket %s by storage class", bucket), []string{"Storage class", "Number of files"}); err != nil {
-			log.Fatal("Storage class reportUint64 returned: %s", err)
+			log.Fatalf("Storage class reportUint64 returned: %s", err)
 		}
 		if err := reportUint64(csvWriter, stats.extensionCount, fmt.Sprintf("Repartition of files for bucket %s by extension", bucket), []string{"Extension", "Number of files"}); err != nil {
-			log.Fatal("Extension reportUint64 returned: %s", err)
+			log.Fatalf("Extension reportUint64 returned: %s", err)
 		}
 		if err := reportUint64(csvWriter, stats.dateCount, fmt.Sprintf("Repartition of files for bucket %s by month", bucket), []string{"Month", "Number of files"}); err != nil {
-			log.Fatal("Monthly reportUint64 returned: %s", err)
+			log.Fatalf("Monthly reportUint64 returned: %s", err)
 		}
 	}
 	csvWriter.Flush()
