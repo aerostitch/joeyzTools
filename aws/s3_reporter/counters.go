@@ -6,6 +6,20 @@ import (
 	"sort"
 	"strconv"
 	"sync"
+	"time"
+)
+
+var (
+	now5yAgo = time.Now().UTC().AddDate(-5, 0, 0)
+	now4yAgo = time.Now().UTC().AddDate(-4, 0, 0)
+	now3yAgo = time.Now().UTC().AddDate(-3, 0, 0)
+	now2yAgo = time.Now().UTC().AddDate(-2, 0, 0)
+	now1yAgo = time.Now().UTC().AddDate(-1, 0, 0)
+	now9mAgo = time.Now().UTC().AddDate(0, -9, 0)
+	now6mAgo = time.Now().UTC().AddDate(0, -6, 0)
+	now3mAgo = time.Now().UTC().AddDate(0, -3, 0)
+	now2mAgo = time.Now().UTC().AddDate(0, -2, 0)
+	now1mAgo = time.Now().UTC().AddDate(0, -1, 0)
 )
 
 type bucketCounter struct {
@@ -22,6 +36,7 @@ type bucketCounter struct {
 	extensionCount map[string]uint64
 	dateMutex      *sync.Mutex
 	dateCount      map[string]uint64
+	dateRange      map[string]uint64
 }
 
 // newBucketCounter initialize a new bucketCounter with the required fields
@@ -48,8 +63,16 @@ func (c *bucketCounter) countSize(keySize *int64) {
 	c.sizeMutex.Unlock()
 }
 
+// countDateSummary increments the date summary counters
+func (c *bucketCounter) countDateSummary(keyDate *time.Time) {
+	k := getDateRange(keyDate)
+	c.dateMutex.Lock()
+	c.dateRange[k]++
+	c.dateMutex.Unlock()
+}
+
 // incrementUint64 increments a map[string]uint64 using a mutex
-func incrementUint64(m *sync.Mutex, ctr map[string]uint64, key *string) {
+func incrementUint64(m sync.Locker, ctr map[string]uint64, key *string) {
 	m.Lock()
 	if _, ok := ctr[*key]; !ok {
 		ctr[*key] = 1
@@ -60,12 +83,14 @@ func incrementUint64(m *sync.Mutex, ctr map[string]uint64, key *string) {
 }
 
 // increment increments a *bucketCounter
-func increment(ctr *bucketCounter, size *int64, storageClass, extension, lastModified, root *string, recurse bool) {
+func increment(ctr *bucketCounter, size *int64, storageClass, extension, root *string, lastModified *time.Time, recurse bool) {
+	lastMod := fmt.Sprintf("%d-%02d-01", lastModified.Year(), lastModified.Month())
 	ctr.countFile()
 	ctr.countSize(size)
+	ctr.countDateSummary(lastModified)
 	incrementUint64(ctr.storageMutex, ctr.storageCount, storageClass)
 	incrementUint64(ctr.extensionMutex, ctr.extensionCount, extension)
-	incrementUint64(ctr.dateMutex, ctr.dateCount, lastModified)
+	incrementUint64(ctr.dateMutex, ctr.dateCount, &lastMod)
 	if recurse {
 		ctr.rootMutex.Lock()
 		c, ok := ctr.rootCount[*root]
@@ -74,7 +99,7 @@ func increment(ctr *bucketCounter, size *int64, storageClass, extension, lastMod
 		}
 		ctr.rootCount[*root] = c
 		ctr.rootMutex.Unlock()
-		increment(c, size, storageClass, extension, lastModified, root, false)
+		increment(c, size, storageClass, extension, root, lastModified, false)
 	}
 }
 
@@ -104,7 +129,47 @@ func initStats(c *bucketCounter) {
 	c.extensionCount = make(map[string]uint64)
 	c.dateMutex = &sync.Mutex{}
 	c.dateCount = make(map[string]uint64)
+	c.dateRange = map[string]uint64{
+		"<1 month":   0,
+		"1-2 month":  0,
+		"2-3 month":  0,
+		"3-6 month":  0,
+		"6-9 month":  0,
+		"9-12 month": 0,
+		"1-2 year":   0,
+		"2-3 year":   0,
+		"3-4 year":   0,
+		"4-5 year":   0,
+		">5 year":    0,
+	}
 
+}
+
+// getDateRange returns the key label corresponding to the range the given date is in
+func getDateRange(keyDate *time.Time) string {
+	switch {
+	case (*keyDate).Before(now5yAgo):
+		return ">5 year"
+	case (*keyDate).Before(now4yAgo):
+		return "4-5 year"
+	case (*keyDate).Before(now3yAgo):
+		return "3-4 year"
+	case (*keyDate).Before(now2yAgo):
+		return "2-3 year"
+	case (*keyDate).Before(now1yAgo):
+		return "1-2 year"
+	case (*keyDate).Before(now9mAgo):
+		return "9-12 month"
+	case (*keyDate).Before(now6mAgo):
+		return "6-9 month"
+	case (*keyDate).Before(now3mAgo):
+		return "3-6 month"
+	case (*keyDate).Before(now2mAgo):
+		return "2-3 month"
+	case (*keyDate).Before(now1mAgo):
+		return "1-2 month"
+	}
+	return "<1 month"
 }
 
 // getSizeRange returns the key label corresponding to the range the given size is in
@@ -132,13 +197,58 @@ func getSizeRange(keySize *int64) string {
 	return "<1KB"
 }
 
-// reportSizing provides the reports on size-related statistics for a map[string]*bucketCounter
-func reportSizing(csvWriter *csv.Writer, ctr map[string]*bucketCounter) error {
+// reportDateSummary provides the reports on date-related statistics for a map[string]*bucketCounter
+func reportDateSummary(csvWriter *csv.Writer, ctr map[string]*bucketCounter) error {
+	if err := csvWriter.Write([]string{"Repartition of file ages by buckets"}); err != nil {
+		return err
+	}
+	header := []string{"Bucket name", "Total number of files", "<1 month", "1-2 month", "2-3 month", "3-6 month", "6-9 month", "9-12 month", "1-2 year", "2-3 year", "3-4 year", "4-5 year", ">5 year"}
+	if err := csvWriter.Write(header); err != nil {
+		return err
+	}
+
 	for k, v := range ctr {
 		arr := []string{
 			k,
 			strconv.FormatUint(v.fileCount, 10),
-			strconv.FormatUint(v.sizeTotal, 10),
+			strconv.FormatUint(v.dateRange["<1 month"], 10),
+			strconv.FormatUint(v.dateRange["1-2 month"], 10),
+			strconv.FormatUint(v.dateRange["2-3 month"], 10),
+			strconv.FormatUint(v.dateRange["3-6 month"], 10),
+			strconv.FormatUint(v.dateRange["6-9 month"], 10),
+			strconv.FormatUint(v.dateRange["9-12 month"], 10),
+			strconv.FormatUint(v.dateRange["1-2 year"], 10),
+			strconv.FormatUint(v.dateRange["2-3 year"], 10),
+			strconv.FormatUint(v.dateRange["3-4 year"], 10),
+			strconv.FormatUint(v.dateRange["4-5 year"], 10),
+			strconv.FormatUint(v.dateRange[">5 year"], 10),
+		}
+		if err := csvWriter.Write(arr); err != nil {
+			return err
+		}
+	}
+	if err := csvWriter.Write(nil); err != nil {
+		return err
+	}
+	csvWriter.Flush()
+	return nil
+}
+
+// reportSizing provides the reports on size-related statistics for a map[string]*bucketCounter
+func reportSizing(csvWriter *csv.Writer, ctr map[string]*bucketCounter, byColumn string) error {
+	if err := csvWriter.Write([]string{fmt.Sprintf("Repartition of file sizes by %s", byColumn)}); err != nil {
+		return err
+	}
+	header := []string{byColumn, "Total number of files", "Total size (GB)", "<1KB", "1KB-10KB", "10KB-100KB", "100KB-1MB", "1MB-10MB", "10MB-100MB", "100MB-1GB", "1GB-10GB", "10GB-100GB", "100GB+"}
+	if err := csvWriter.Write(header); err != nil {
+		return err
+	}
+
+	for k, v := range ctr {
+		arr := []string{
+			k,
+			strconv.FormatUint(v.fileCount, 10),
+			strconv.FormatFloat((float64(v.sizeTotal) / 1024.0 / 1024.0 / 1024.0), 'f', 4, 64),
 			strconv.FormatUint(v.sizeCount["<1KB"], 10),
 			strconv.FormatUint(v.sizeCount["1KB-10KB"], 10),
 			strconv.FormatUint(v.sizeCount["10KB-100KB"], 10),
@@ -165,14 +275,7 @@ func reportSizing(csvWriter *csv.Writer, ctr map[string]*bucketCounter) error {
 func reportByRoot(csvWriter *csv.Writer, bucket string, ctr *bucketCounter) error {
 	var err error
 	if ctr != nil && len(ctr.rootCount) > 0 {
-		if err = csvWriter.Write([]string{fmt.Sprintf("Repartition of file sizes for bucket %s by root folder", bucket)}); err != nil {
-			return err
-		}
-		rootHeader := []string{"Root folder", "Total number of files", "Total size", "<1KB", "1KB-10KB", "10KB-100KB", "100KB-1MB", "1MB-10MB", "10MB-100MB", "100MB-1GB", "1GB-10GB", "10GB-100GB", "100GB+"}
-		if err = csvWriter.Write(rootHeader); err != nil {
-			return err
-		}
-		err = reportSizing(csvWriter, ctr.rootCount)
+		err = reportSizing(csvWriter, ctr.rootCount, fmt.Sprintf("root folder for bucket %s", bucket))
 	}
 	return err
 }
@@ -197,7 +300,7 @@ func reportUint64(csvWriter *csv.Writer, ctr map[string]uint64, title string, he
 				return err
 			}
 		}
-		if err := csvWriter.Write(nil); err != nil {
+		if err = csvWriter.Write(nil); err != nil {
 			return err
 		}
 		csvWriter.Flush()

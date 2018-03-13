@@ -64,14 +64,13 @@ func getObjectStats(bucketName *string, obj *s3.Object) {
 	if lastChar != "/" {
 		ext := path.Ext(*obj.Key)
 		lastMod := (*obj.LastModified).UTC()
-		mod := fmt.Sprintf("%d-%02d-01", lastMod.Year(), lastMod.Month())
 		root := (strings.Split(*obj.Key, "/"))[0]
-		increment(report[*bucketName], obj.Size, obj.StorageClass, &ext, &mod, &root, true)
+		increment(report[*bucketName], obj.Size, obj.StorageClass, &ext, &root, &lastMod, true)
 	}
 }
 
 // reportCsv export the current state of the report to a csv file
-func reportCsv(filePath string) {
+func reportCsv(filePath, reportType string) {
 	f, errF := os.Create(filePath)
 	if errF != nil {
 		log.Fatalf("os.Create returned: %s", errF)
@@ -79,40 +78,46 @@ func reportCsv(filePath string) {
 	defer f.Close()
 
 	csvWriter := csv.NewWriter(f)
-	if err := csvWriter.Write([]string{"Repartition of file sizes by buckets"}); err != nil {
-		log.Fatalf("csvWriter.Write returned: %s", err)
-	}
-	header := []string{"Bucket name", "Total number of files", "Total size", "<1KB", "1KB-10KB", "10KB-100KB", "100KB-1MB", "1MB-10MB", "10MB-100MB", "100MB-1GB", "1GB-10GB", "10GB-100GB", "100GB+"}
-	if err := csvWriter.Write(header); err != nil {
-		log.Fatalf("csvWriter.Write returned: %s", err)
-	}
-	if err := reportSizing(csvWriter, report); err != nil {
-		log.Fatalf("reportSizing returned: %s", err)
-	}
-
-	for bucket, stats := range report {
-		if err := reportByRoot(csvWriter, bucket, stats); err != nil {
-			log.Fatalf("reportByRoot returned: %s", err)
+	if reportType == "summary" || reportType == "full" {
+		if err := reportSizing(csvWriter, report, "bucket name"); err != nil {
+			log.Fatalf("reportSizing returned: %s", err)
 		}
 
-		if err := reportUint64(csvWriter, stats.storageCount, fmt.Sprintf("Repartition of files for bucket %s by storage class", bucket), []string{"Storage class", "Number of files"}); err != nil {
-			log.Fatalf("Storage class reportUint64 returned: %s", err)
+		if err := reportDateSummary(csvWriter, report); err != nil {
+			log.Fatalf("reportDateSummary returned: %s", err)
 		}
-		if err := reportUint64(csvWriter, stats.extensionCount, fmt.Sprintf("Repartition of files for bucket %s by extension", bucket), []string{"Extension", "Number of files"}); err != nil {
-			log.Fatalf("Extension reportUint64 returned: %s", err)
-		}
-		if err := reportUint64(csvWriter, stats.dateCount, fmt.Sprintf("Repartition of files for bucket %s by month", bucket), []string{"Month", "Number of files"}); err != nil {
-			log.Fatalf("Monthly reportUint64 returned: %s", err)
+	}
+
+	if reportType == "details" || reportType == "full" {
+		for bucket, stats := range report {
+			if err := reportByRoot(csvWriter, bucket, stats); err != nil {
+				log.Fatalf("reportByRoot returned: %s", err)
+			}
+
+			if err := reportUint64(csvWriter, stats.storageCount, fmt.Sprintf("Repartition of files for bucket %s by storage class", bucket), []string{"Storage class", "Number of files"}); err != nil {
+				log.Fatalf("Storage class reportUint64 returned: %s", err)
+			}
+			if err := reportUint64(csvWriter, stats.extensionCount, fmt.Sprintf("Repartition of files for bucket %s by extension", bucket), []string{"Extension", "Number of files"}); err != nil {
+				log.Fatalf("Extension reportUint64 returned: %s", err)
+			}
+			if err := reportUint64(csvWriter, stats.dateCount, fmt.Sprintf("Repartition of files for bucket %s by month", bucket), []string{"Month", "Number of files"}); err != nil {
+				log.Fatalf("Monthly reportUint64 returned: %s", err)
+			}
 		}
 	}
 	csvWriter.Flush()
 }
 
 func main() {
-	var reportPath, bucketFilter string
+	var reportPath, bucketsFilter, reportType string
 	flag.StringVar(&reportPath, "report-path", "/tmp/s3.csv", "Path to the csv report to generate. Environment variable: REPORT_PATH")
-	flag.StringVar(&bucketFilter, "bucket", "", "Bucket to scan. If none specified, all buckets will be scanned. Environment variable: BUCKET")
+	flag.StringVar(&bucketsFilter, "buckets", "", "Coma-separated list of bucket to scan. If none specified, all buckets will be scanned. Environment variable: BUCKETS")
+	flag.StringVar(&reportType, "report-type", "full", "Type of report to output. Allowed values 'summary' (only size and age global report), 'details' (only details tables for each bucket), 'full' (summary + details). Environment variable: REPORT_TYPE")
 	envflag.Parse()
+
+	if reportType != "summary" && reportType != "details" && reportType != "full" {
+		log.Fatal("Incorrect report-type specified. Allowed values:\n - summary: only size and age global report\n - details: only details tables for each bucket\n - full: summary + details")
+	}
 
 	if report == nil {
 		report = make(map[string]*bucketCounter)
@@ -122,13 +127,19 @@ func main() {
 	}))
 
 	svc := s3.New(sess)
-	buckets := []*string{&bucketFilter}
-	if len(bucketFilter) <= 0 {
+	var buckets []*string
+	if len(bucketsFilter) <= 0 {
 		var err error
 		if buckets, err = getBucketsList(svc); err != nil {
 			log.Fatalf("Error while retrieving the buckets list: %s\n", err)
 		}
+	} else {
+		for _, b := range strings.Split(bucketsFilter, ",") {
+			bucket := b
+			buckets = append(buckets, &bucket)
+		}
 	}
+
 	for _, b := range buckets {
 		loc, err := getBucketRegion(svc, b)
 		if err != nil {
@@ -143,5 +154,5 @@ func main() {
 		}
 		getBucketObjects(localSvc, b)
 	}
-	reportCsv(reportPath)
+	reportCsv(reportPath, reportType)
 }
