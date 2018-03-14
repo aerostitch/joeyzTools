@@ -8,8 +8,11 @@ import (
 	"os"
 	"path"
 	"strings"
+	"sync"
+	"time"
 
 	"github.com/aws/aws-sdk-go/aws"
+	"github.com/aws/aws-sdk-go/aws/client"
 	"github.com/aws/aws-sdk-go/aws/session"
 	"github.com/aws/aws-sdk-go/service/s3"
 	"github.com/aws/aws-sdk-go/service/s3/s3iface"
@@ -17,6 +20,7 @@ import (
 )
 
 var report map[string]*bucketCounter
+var reportMutex *sync.Mutex
 
 // getBucketsList returns the full list of buckets
 func getBucketsList(svc s3iface.S3API) ([]*string, error) {
@@ -38,23 +42,56 @@ func getBucketRegion(svc s3iface.S3API, bucketName *string) (string, error) {
 	return s3.NormalizeBucketLocation(loc), err
 }
 
-// getBucketObjects gets the list of objects in a bucket
-func getBucketObjects(svc s3iface.S3API, bucketName *string) {
-	if _, ok := report[*bucketName]; !ok {
-		report[*bucketName] = newBucketCounter()
+// bucketWorker takes care of listing the objects pages and putting them in the
+// page channel
+func bucketWorker(sess client.ConfigProvider, sessionRegion string, svc s3iface.S3API, buckets chan *string, wg *sync.WaitGroup, pageChan chan *s3.ListObjectsV2Output) {
+	for b := range buckets {
+		log.Printf("%d buckets left in the queue", len(buckets))
+		loc, err := getBucketRegion(svc, b)
+		if err != nil {
+			log.Printf("Error while retrieving the bucket %s location: %s\n", *b, err)
+			continue
+		}
+		log.Printf("Bucket: %s, Location: %s\n", *b, loc)
+		localSvc := svc
+		// Makes sure we are in the right region and avoid stuffs like:
+		// AuthorizationHeaderMalformed: The authorization header is malformed; the region 'us-east-1' is wrong
+		if loc != sessionRegion {
+			localSvc = s3.New(sess, aws.NewConfig().WithRegion(loc))
+		}
+		getBucketObjects(localSvc, b, pageChan)
 	}
+	wg.Done()
+}
+
+// getBucketObjects gets the list of objects in a bucket
+func getBucketObjects(svc s3iface.S3API, bucketName *string, pageChan chan *s3.ListObjectsV2Output) {
 	encodingType := "url"
 	params := s3.ListObjectsV2Input{Bucket: bucketName, EncodingType: &encodingType}
+	chanWarn := int(float64(cap(pageChan)) * 0.95) // threshold after which we slow down the feed to the channel
 	err := svc.ListObjectsV2Pages(&params,
 		func(page *s3.ListObjectsV2Output, lastPage bool) bool {
-			for _, obj := range page.Contents {
-				getObjectStats(bucketName, obj)
+			if len(pageChan) > chanWarn {
+				log.Println("Page channel is soon at capacity, slowing down the worker")
+				time.Sleep(1 * time.Second)
 			}
+			pageChan <- page
 			return !lastPage
 		})
 	if err != nil {
 		log.Fatalf("ListObjectsV2Pages returned: %s", err)
 	}
+}
+
+// processPage gets the statistics for each page of objects provided by the
+// channel
+func processPage(pageChan chan *s3.ListObjectsV2Output, wg *sync.WaitGroup) {
+	for page := range pageChan {
+		for _, obj := range page.Contents {
+			getObjectStats(page.Name, obj)
+		}
+	}
+	wg.Done()
 }
 
 // getObjectStats collects the statistics of an objects in the report structure
@@ -65,7 +102,10 @@ func getObjectStats(bucketName *string, obj *s3.Object) {
 		ext := path.Ext(*obj.Key)
 		lastMod := (*obj.LastModified).UTC()
 		root := (strings.Split(*obj.Key, "/"))[0]
-		increment(report[*bucketName], obj.Size, obj.StorageClass, &ext, &root, &lastMod, true)
+		reportMutex.Lock()
+		currentReport := report[*bucketName]
+		reportMutex.Unlock()
+		increment(currentReport, obj.Size, obj.StorageClass, &ext, &root, &lastMod, true)
 	}
 }
 
@@ -140,19 +180,33 @@ func main() {
 		}
 	}
 
-	for _, b := range buckets {
-		loc, err := getBucketRegion(svc, b)
-		if err != nil {
-			log.Fatalf("Error while retrieving the bucket %s location: %s\n", *b, err)
-		}
-		log.Printf("Bucket: %s, Location: %s\n", *b, loc)
-		localSvc := svc
-		// Makes sure we are in the right region and avoid stuffs like:
-		// AuthorizationHeaderMalformed: The authorization header is malformed; the region 'us-east-1' is wrong
-		if loc != *sess.Config.Region {
-			localSvc = s3.New(sess, aws.NewConfig().WithRegion(loc))
-		}
-		getBucketObjects(localSvc, b)
+	reportMutex = &sync.Mutex{}
+	var wg, wgBucket sync.WaitGroup
+	pageChan := make(chan *s3.ListObjectsV2Output, 100)
+	bucketsChan := make(chan *string, 1000)
+	// Setup a worker group
+	for i := 0; i < 2; i++ {
+		wg.Add(1)
+		go processPage(pageChan, &wg)
 	}
+	for i := 0; i < 8; i++ {
+		wgBucket.Add(1)
+		go bucketWorker(sess, *sess.Config.Region, svc, bucketsChan, &wgBucket, pageChan)
+	}
+
+	for _, b := range buckets {
+		if _, ok := report[*b]; !ok {
+			reportMutex.Lock()
+			report[*b] = newBucketCounter()
+			reportMutex.Unlock()
+		}
+		bucketsChan <- b
+	}
+	close(bucketsChan)
+
+	wgBucket.Wait()
+	close(pageChan)
+	wg.Wait()
+
 	reportCsv(reportPath, reportType)
 }
