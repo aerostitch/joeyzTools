@@ -3,6 +3,18 @@
 This script generates reports about files age, extensions, size and other
 attributes for one or all of your s3 buckets.
 
+## Table of Contents
+
+  * [Usage](#usage)
+    * [Scan all your buckets](#scan-all-your-buckets)
+    * [Excluding buckets](#excluding-buckets)
+    * [Scan only a given list of buckets](#scan-only-a-given-list-of-buckets)
+    * [Specify a path for the output report](#specify-a-path-for-the-output-report)
+  * [Reports type](#reports-type)
+    * [report of type summary](#report-of-type-summary)
+    * [report of type details](#report-of-type-details)
+    * [report of type full](#report-of-type-full)
+
 ## Usage
 
 S3 reporter uses the Shared Config mode meaning it reads from your environent
@@ -87,7 +99,7 @@ export REPORT_PATH=~/reports/s3_${BUCKETS}.csv
 
 ## Reports type
 
-### `summary`
+### report of type `summary`
 
 The summary report generates 2 tables.
 
@@ -129,7 +141,7 @@ ranges shown in the header. For example:
 
 
 
-### `details`
+### report of type `details`
 
 The detailed report generates 4 tables per bucket:
 
@@ -194,7 +206,7 @@ The detailed report generates 4 tables per bucket:
 | 2018-03-01 | 15019           | 
 
 
-### `full`
+### report of type `full`
 
 This is the default value of the `-report-type` flag. It adds the tables from
 both the `summary` report and the tables of the `details` report in the csv
