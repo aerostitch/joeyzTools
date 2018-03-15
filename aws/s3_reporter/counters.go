@@ -23,18 +23,18 @@ var (
 )
 
 type bucketCounter struct {
-	fileMutex      *sync.Mutex
+	fileMutex      sync.Locker
 	fileCount      uint64
-	sizeMutex      *sync.Mutex
+	sizeMutex      sync.Locker
 	sizeCount      map[string]uint64
 	sizeTotal      uint64
-	storageMutex   *sync.Mutex
+	storageMutex   sync.Locker
 	storageCount   map[string]uint64
-	rootMutex      *sync.Mutex
+	rootMutex      sync.Locker
 	rootCount      map[string]*bucketCounter
-	extensionMutex *sync.Mutex
+	extensionMutex sync.Locker
 	extensionCount map[string]uint64
-	dateMutex      *sync.Mutex
+	dateMutex      sync.Locker
 	dateCount      map[string]uint64
 	dateRange      map[string]uint64
 }

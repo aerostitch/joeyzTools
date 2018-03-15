@@ -7,6 +7,24 @@ import (
 	"time"
 )
 
+var (
+	lockCalls   int
+	unlockCalls int
+)
+
+// mutexMock is used to verify that the mutex locks are properly triggered
+type mutexMock struct {
+	sync.Locker
+}
+
+func (m *mutexMock) Lock() {
+	lockCalls++
+}
+
+func (m *mutexMock) Unlock() {
+	unlockCalls++
+}
+
 func TestNewBucketCounter(t *testing.T) {
 	expected := bucketCounter{
 		fileMutex: &sync.Mutex{},
@@ -51,6 +69,23 @@ func TestNewBucketCounter(t *testing.T) {
 	r := newBucketCounter()
 	if !reflect.DeepEqual(*r, expected) {
 		t.Errorf("Expecting %v got %v", expected, *r)
+	}
+}
+
+func TestCountFile(t *testing.T) {
+	c := newBucketCounter()
+	c.fileMutex = &mutexMock{}
+	lockCalls = 0
+	unlockCalls = 0
+	c.countFile()
+	if c.fileCount != 1 {
+		t.Errorf("Expecting fileCount to be 1, got %d", c.fileCount)
+	}
+	if lockCalls != 1 {
+		t.Errorf("Expecting 1 mutex lock to be triggered. Got %d", lockCalls)
+	}
+	if unlockCalls != 1 {
+		t.Errorf("Expecting 1 mutex unlock to be triggered. Got %d", unlockCalls)
 	}
 }
 

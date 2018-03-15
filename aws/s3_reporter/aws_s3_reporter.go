@@ -20,7 +20,7 @@ import (
 )
 
 var report map[string]*bucketCounter
-var reportMutex *sync.Mutex
+var reportMutex sync.Locker
 
 // getBucketsList returns the full list of buckets
 func getBucketsList(svc s3iface.S3API) ([]*string, error) {
