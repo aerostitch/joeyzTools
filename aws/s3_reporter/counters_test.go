@@ -89,6 +89,37 @@ func TestCountFile(t *testing.T) {
 	}
 }
 
+func TestCountSize(t *testing.T) {
+	testData := []struct {
+		inputSize                                                                  int64
+		label                                                                      string
+		initialLabelCount, expectedLabelCount, initialTotalSize, expectedTotalSize uint64
+	}{
+		{100, "<1KB", 90, 91, 1100, 1200},
+		{104857600, "100MB-1GB", 8, 9, 55, 104857655},
+	}
+	for _, d := range testData {
+		c := newBucketCounter()
+		c.sizeCount[d.label] = d.initialLabelCount
+		c.sizeTotal = d.initialTotalSize
+		c.sizeMutex = &mutexMock{}
+		lockCalls = 0
+		unlockCalls = 0
+		c.countSize(&d.inputSize)
+		if c.sizeCount[d.label] != d.expectedLabelCount {
+			t.Errorf("Expecting sizeCount to be %d, got %d", d.expectedLabelCount, c.sizeCount[d.label])
+		}
+		if c.sizeTotal != d.expectedTotalSize {
+			t.Errorf("Expecting sizeTotal to be %d, got %d", d.expectedTotalSize, c.sizeTotal)
+		}
+		if lockCalls != 1 {
+			t.Errorf("Expecting 1 mutex lock to be triggered. Got %d", lockCalls)
+		}
+		if unlockCalls != 1 {
+			t.Errorf("Expecting 1 mutex unlock to be triggered. Got %d", unlockCalls)
+		}
+	}
+}
 func TestGetDateRange(t *testing.T) {
 	tzLA, _ := time.LoadLocation("America/Los_Angeles")
 	nowDate := time.Date(2018, 3, 13, 9, 30, 0, 0, tzLA)
