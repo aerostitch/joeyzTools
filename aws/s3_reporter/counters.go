@@ -66,19 +66,14 @@ func (c *bucketCounter) countSize(keySize *int64) {
 // countDateSummary increments the date summary counters
 func (c *bucketCounter) countDateSummary(keyDate *time.Time) {
 	k := getDateRange(keyDate)
-	c.dateMutex.Lock()
-	c.dateRange[k]++
-	c.dateMutex.Unlock()
+	incrementUint64(c.dateMutex, c.dateRange, &k)
 }
 
 // incrementUint64 increments a map[string]uint64 using a mutex
 func incrementUint64(m sync.Locker, ctr map[string]uint64, key *string) {
 	m.Lock()
-	if _, ok := ctr[*key]; !ok {
-		ctr[*key] = 1
-	} else {
-		ctr[*key]++
-	}
+	// Relies on the fact that a null value for an uint64 is 0
+	ctr[*key]++
 	m.Unlock()
 }
 

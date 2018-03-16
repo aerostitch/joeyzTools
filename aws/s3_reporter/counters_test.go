@@ -218,3 +218,70 @@ func TestGetSizeRange(t *testing.T) {
 		}
 	}
 }
+
+func BenchmarkCountDateSummary(b *testing.B) {
+	input := time.Date(2018, 01, 10, 0, 0, 0, 0, time.UTC)
+	c := newBucketCounter()
+	for n := 0; n < b.N; n++ {
+		c.countDateSummary(&input)
+	}
+}
+
+func TestCountDateSummary(t *testing.T) {
+	now5yAgo = time.Date(2018, 3, 16, 0, 0, 0, 0, time.UTC)
+	testData := []struct {
+		inputDate     time.Time
+		initialMap    map[string]uint64
+		expectedLabel string
+		expectedCount uint64
+	}{
+		{time.Date(2013, 01, 10, 0, 0, 0, 0, time.UTC), map[string]uint64{}, ">5 year", 1},
+		{time.Date(2013, 01, 10, 0, 0, 0, 0, time.UTC), map[string]uint64{"4-5 year": 50, ">5 year": 100}, ">5 year", 101},
+	}
+	for _, d := range testData {
+		c := newBucketCounter()
+		c.dateRange = d.initialMap
+		c.dateMutex = &mutexMock{}
+		lockCalls = 0
+		unlockCalls = 0
+		c.countDateSummary(&d.inputDate)
+		if c.dateRange[d.expectedLabel] != d.expectedCount {
+			t.Errorf("Expecting dateRange of %s to be %d, got %d", d.expectedLabel, d.expectedCount, c.dateRange[d.expectedLabel])
+		}
+		if lockCalls != 1 {
+			t.Errorf("Expecting 1 mutex lock to be triggered. Got %d", lockCalls)
+		}
+		if unlockCalls != 1 {
+			t.Errorf("Expecting 1 mutex unlock to be triggered. Got %d", unlockCalls)
+		}
+	}
+}
+
+func BenchmarkIncrementUint64(b *testing.B) {
+	input := map[string]uint64{"bar": 100, "foo": 42}
+	key := "foo"
+	m := &sync.Mutex{}
+	for n := 0; n < b.N; n++ {
+		incrementUint64(m, input, &key)
+	}
+}
+
+func TestIncrementUint64(t *testing.T) {
+	testData := []struct {
+		inputM   map[string]uint64
+		inputK   string
+		expected map[string]uint64
+	}{
+		{map[string]uint64{}, "foo", map[string]uint64{"foo": 1}},
+		{map[string]uint64{"bar": 100}, "foo", map[string]uint64{"bar": 100, "foo": 1}},
+		{map[string]uint64{"bar": 100, "foo": 42}, "foo", map[string]uint64{"bar": 100, "foo": 43}},
+		{map[string]uint64{"foo": 42}, "foo", map[string]uint64{"foo": 43}},
+	}
+	for _, d := range testData {
+		m := &mutexMock{}
+		incrementUint64(m, d.inputM, &d.inputK)
+		if !reflect.DeepEqual(d.inputM, d.expected) {
+			t.Errorf("Expecting %v, got %v", d.expected, d.inputM)
+		}
+	}
+}
