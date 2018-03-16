@@ -72,6 +72,13 @@ func TestNewBucketCounter(t *testing.T) {
 	}
 }
 
+func BenchmarkCountFile(b *testing.B) {
+	c := newBucketCounter()
+	for n := 0; n < b.N; n++ {
+		c.countFile()
+	}
+}
+
 func TestCountFile(t *testing.T) {
 	c := newBucketCounter()
 	c.fileMutex = &mutexMock{}
@@ -86,6 +93,14 @@ func TestCountFile(t *testing.T) {
 	}
 	if unlockCalls != 1 {
 		t.Errorf("Expecting 1 mutex unlock to be triggered. Got %d", unlockCalls)
+	}
+}
+
+func BenchmarkCountSize(b *testing.B) {
+	val := int64(150)
+	c := newBucketCounter()
+	for n := 0; n < b.N; n++ {
+		c.countSize(&val)
 	}
 }
 
