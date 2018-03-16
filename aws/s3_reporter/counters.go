@@ -43,7 +43,7 @@ type bucketCounter struct {
 // initialized
 func newBucketCounter() *bucketCounter {
 	c := bucketCounter{}
-	initStats(&c)
+	c.initStats()
 	return &c
 }
 
@@ -55,51 +55,51 @@ func (c *bucketCounter) countFile() {
 }
 
 // countSize increments the different size counters
-func (c *bucketCounter) countSize(keySize *int64) {
+func (c *bucketCounter) countSize(keySize int64) {
 	k := getSizeRange(keySize)
 	c.sizeMutex.Lock()
 	c.sizeCount[k]++
-	c.sizeTotal += uint64(*keySize)
+	c.sizeTotal += uint64(keySize)
 	c.sizeMutex.Unlock()
 }
 
 // countDateSummary increments the date summary counters
-func (c *bucketCounter) countDateSummary(keyDate *time.Time) {
+func (c *bucketCounter) countDateSummary(keyDate time.Time) {
 	k := getDateRange(keyDate)
-	incrementUint64(c.dateMutex, c.dateRange, &k)
+	incrementUint64(c.dateMutex, c.dateRange, k)
 }
 
 // incrementUint64 increments a map[string]uint64 using a mutex
-func incrementUint64(m sync.Locker, ctr map[string]uint64, key *string) {
+func incrementUint64(m sync.Locker, ctr map[string]uint64, key string) {
 	m.Lock()
 	// Relies on the fact that a null value for an uint64 is 0
-	ctr[*key]++
+	ctr[key]++
 	m.Unlock()
 }
 
 // increment increments a *bucketCounter
-func increment(ctr *bucketCounter, size *int64, storageClass, extension, root *string, lastModified *time.Time, recurse bool) {
+func (c *bucketCounter) increment(size int64, storageClass, extension, root string, lastModified time.Time, recurse bool) {
 	lastMod := fmt.Sprintf("%d-%02d-01", lastModified.Year(), lastModified.Month())
-	ctr.countFile()
-	ctr.countSize(size)
-	ctr.countDateSummary(lastModified)
-	incrementUint64(ctr.storageMutex, ctr.storageCount, storageClass)
-	incrementUint64(ctr.extensionMutex, ctr.extensionCount, extension)
-	incrementUint64(ctr.dateMutex, ctr.dateCount, &lastMod)
+	c.countFile()
+	c.countSize(size)
+	c.countDateSummary(lastModified)
+	incrementUint64(c.storageMutex, c.storageCount, storageClass)
+	incrementUint64(c.extensionMutex, c.extensionCount, extension)
+	incrementUint64(c.dateMutex, c.dateCount, lastMod)
 	if recurse {
-		ctr.rootMutex.Lock()
-		c, ok := ctr.rootCount[*root]
+		c.rootMutex.Lock()
+		ctr, ok := c.rootCount[root]
 		if !ok {
-			c = newBucketCounter()
+			ctr = newBucketCounter()
 		}
-		ctr.rootCount[*root] = c
-		ctr.rootMutex.Unlock()
-		increment(c, size, storageClass, extension, root, lastModified, false)
+		ctr.rootCount[root] = ctr
+		c.rootMutex.Unlock()
+		ctr.increment(size, storageClass, extension, root, lastModified, false)
 	}
 }
 
 // initStats initialize the statistics of a bucketCounter
-func initStats(c *bucketCounter) {
+func (c *bucketCounter) initStats() {
 	c.fileMutex = &sync.Mutex{}
 	c.fileCount = 0
 	c.sizeMutex = &sync.Mutex{}
@@ -141,52 +141,52 @@ func initStats(c *bucketCounter) {
 }
 
 // getDateRange returns the key label corresponding to the range the given date is in
-func getDateRange(keyDate *time.Time) string {
+func getDateRange(keyDate time.Time) string {
 	switch {
-	case (*keyDate).Before(now5yAgo):
+	case keyDate.Before(now5yAgo):
 		return ">5 year"
-	case (*keyDate).Before(now4yAgo):
+	case keyDate.Before(now4yAgo):
 		return "4-5 year"
-	case (*keyDate).Before(now3yAgo):
+	case keyDate.Before(now3yAgo):
 		return "3-4 year"
-	case (*keyDate).Before(now2yAgo):
+	case keyDate.Before(now2yAgo):
 		return "2-3 year"
-	case (*keyDate).Before(now1yAgo):
+	case keyDate.Before(now1yAgo):
 		return "1-2 year"
-	case (*keyDate).Before(now9mAgo):
+	case keyDate.Before(now9mAgo):
 		return "9-12 month"
-	case (*keyDate).Before(now6mAgo):
+	case keyDate.Before(now6mAgo):
 		return "6-9 month"
-	case (*keyDate).Before(now3mAgo):
+	case keyDate.Before(now3mAgo):
 		return "3-6 month"
-	case (*keyDate).Before(now2mAgo):
+	case keyDate.Before(now2mAgo):
 		return "2-3 month"
-	case (*keyDate).Before(now1mAgo):
+	case keyDate.Before(now1mAgo):
 		return "1-2 month"
 	}
 	return "<1 month"
 }
 
 // getSizeRange returns the key label corresponding to the range the given size is in
-func getSizeRange(keySize *int64) string {
+func getSizeRange(keySize int64) string {
 	switch {
-	case *keySize >= 107374182400:
+	case keySize >= 107374182400:
 		return "100GB+"
-	case *keySize >= 10737418240:
+	case keySize >= 10737418240:
 		return "10GB-100GB"
-	case *keySize >= 1073741824:
+	case keySize >= 1073741824:
 		return "1GB-10GB"
-	case *keySize >= 104857600:
+	case keySize >= 104857600:
 		return "100MB-1GB"
-	case *keySize >= 10485760:
+	case keySize >= 10485760:
 		return "10MB-100MB"
-	case *keySize >= 1048576:
+	case keySize >= 1048576:
 		return "1MB-10MB"
-	case *keySize >= 102400:
+	case keySize >= 102400:
 		return "100KB-1MB"
-	case *keySize >= 10240:
+	case keySize >= 10240:
 		return "10KB-100KB"
-	case *keySize >= 1024:
+	case keySize >= 1024:
 		return "1KB-10KB"
 	}
 	return "<1KB"

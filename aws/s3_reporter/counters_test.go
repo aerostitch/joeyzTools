@@ -100,7 +100,7 @@ func BenchmarkCountSize(b *testing.B) {
 	val := int64(150)
 	c := newBucketCounter()
 	for n := 0; n < b.N; n++ {
-		c.countSize(&val)
+		c.countSize(val)
 	}
 }
 
@@ -120,7 +120,7 @@ func TestCountSize(t *testing.T) {
 		c.sizeMutex = &mutexMock{}
 		lockCalls = 0
 		unlockCalls = 0
-		c.countSize(&d.inputSize)
+		c.countSize(d.inputSize)
 		if c.sizeCount[d.label] != d.expectedLabelCount {
 			t.Errorf("Expecting sizeCount to be %d, got %d", d.expectedLabelCount, c.sizeCount[d.label])
 		}
@@ -168,7 +168,7 @@ func TestGetDateRange(t *testing.T) {
 	}
 
 	for _, d := range testData {
-		r := getDateRange(&d.dateCheck)
+		r := getDateRange(d.dateCheck)
 		if r != d.expected {
 			t.Errorf("Expecting \"%s\" got \"%s\"", d.expected, r)
 		}
@@ -182,7 +182,7 @@ func BenchmarkGetSizeRange107374182401(b *testing.B) {
 	var r string
 	val := int64(107374182401)
 	for n := 0; n < b.N; n++ {
-		r = getSizeRange(&val)
+		r = getSizeRange(val)
 	}
 	resultGetSizeRange = r
 }
@@ -191,7 +191,7 @@ func BenchmarkGetSizeRange1048579(b *testing.B) {
 	var r string
 	val := int64(1048579)
 	for n := 0; n < b.N; n++ {
-		r = getSizeRange(&val)
+		r = getSizeRange(val)
 	}
 	resultGetSizeRange = r
 }
@@ -199,7 +199,7 @@ func BenchmarkGetSizeRange1(b *testing.B) {
 	var r string
 	val := int64(1)
 	for n := 0; n < b.N; n++ {
-		r = getSizeRange(&val)
+		r = getSizeRange(val)
 	}
 	resultGetSizeRange = r
 }
@@ -221,7 +221,7 @@ func TestGetSizeRange(t *testing.T) {
 		{512, "<1KB"},
 	}
 	for _, d := range testData {
-		lbl := getSizeRange(&d.input)
+		lbl := getSizeRange(d.input)
 		if lbl != d.expected {
 			t.Errorf("Expected %s, got %s for %d", d.expected, lbl, d.input)
 		}
@@ -232,7 +232,7 @@ func BenchmarkCountDateSummary(b *testing.B) {
 	input := time.Date(2018, 01, 10, 0, 0, 0, 0, time.UTC)
 	c := newBucketCounter()
 	for n := 0; n < b.N; n++ {
-		c.countDateSummary(&input)
+		c.countDateSummary(input)
 	}
 }
 
@@ -253,7 +253,7 @@ func TestCountDateSummary(t *testing.T) {
 		c.dateMutex = &mutexMock{}
 		lockCalls = 0
 		unlockCalls = 0
-		c.countDateSummary(&d.inputDate)
+		c.countDateSummary(d.inputDate)
 		if c.dateRange[d.expectedLabel] != d.expectedCount {
 			t.Errorf("Expecting dateRange of %s to be %d, got %d", d.expectedLabel, d.expectedCount, c.dateRange[d.expectedLabel])
 		}
@@ -271,7 +271,7 @@ func BenchmarkIncrementUint64(b *testing.B) {
 	key := "foo"
 	m := &sync.Mutex{}
 	for n := 0; n < b.N; n++ {
-		incrementUint64(m, input, &key)
+		incrementUint64(m, input, key)
 	}
 }
 
@@ -288,7 +288,7 @@ func TestIncrementUint64(t *testing.T) {
 	}
 	for _, d := range testData {
 		m := &mutexMock{}
-		incrementUint64(m, d.inputM, &d.inputK)
+		incrementUint64(m, d.inputM, d.inputK)
 		if !reflect.DeepEqual(d.inputM, d.expected) {
 			t.Errorf("Expecting %v, got %v", d.expected, d.inputM)
 		}

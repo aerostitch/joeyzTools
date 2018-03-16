@@ -106,7 +106,7 @@ func getObjectStats(bucketName *string, obj *s3.Object) {
 		reportMutex.Lock()
 		currentReport := report[*bucketName]
 		reportMutex.Unlock()
-		increment(currentReport, obj.Size, obj.StorageClass, &ext, &root, &lastMod, true)
+		currentReport.increment(*obj.Size, *obj.StorageClass, ext, root, lastMod, true)
 	}
 }
 
