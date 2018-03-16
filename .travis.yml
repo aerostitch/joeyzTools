@@ -5,4 +5,7 @@ before_install:
   - go get github.com/golang/lint/golint
 
 go:
+  - 1.8.x
+  - 1.9.x
+  - 1.10.x
   - 1.x
