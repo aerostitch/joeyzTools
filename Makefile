@@ -1,4 +1,4 @@
-default: dep fmt lint test
+all: dep fmt lint test bench
 
 dep:
 	go get -t -v ./...
@@ -20,6 +20,9 @@ gocov:
 
 test:
 	go test -v ./...
+
+bench:
+	@find . -iname '*.go' -exec dirname {} \+ | sort | uniq | while read d ; do pushd $d; go test -bench=. ; popd ; done
 
 build: dep lint test
 	go clean -v
