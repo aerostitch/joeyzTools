@@ -160,3 +160,46 @@ func TestGetDateRange(t *testing.T) {
 	}
 
 }
+
+func BenchmarkGetSizeRange107374182401(b *testing.B) {
+	val := int64(107374182401)
+	for n := 0; n < b.N; n++ {
+		getSizeRange(&val)
+	}
+}
+func BenchmarkGetSizeRange1048579(b *testing.B) {
+	val := int64(1048579)
+	for n := 0; n < b.N; n++ {
+		getSizeRange(&val)
+	}
+}
+func BenchmarkGetSizeRange1(b *testing.B) {
+	val := int64(1)
+	for n := 0; n < b.N; n++ {
+		getSizeRange(&val)
+	}
+}
+
+func TestGetSizeRange(t *testing.T) {
+	testData := []struct {
+		input    int64
+		expected string
+	}{
+		{207374182400, "100GB+"},
+		{10737418245, "10GB-100GB"},
+		{1073741855, "1GB-10GB"},
+		{104857600, "100MB-1GB"},
+		{104857599, "10MB-100MB"},
+		{1048577, "1MB-10MB"},
+		{102450, "100KB-1MB"},
+		{10240, "10KB-100KB"},
+		{1500, "1KB-10KB"},
+		{512, "<1KB"},
+	}
+	for _, d := range testData {
+		lbl := getSizeRange(&d.input)
+		if lbl != d.expected {
+			t.Errorf("Expected %s, got %s for %d", d.expected, lbl, d.input)
+		}
+	}
+}
