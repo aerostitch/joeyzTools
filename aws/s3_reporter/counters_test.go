@@ -176,23 +176,32 @@ func TestGetDateRange(t *testing.T) {
 
 }
 
+var resultGetSizeRange string
+
 func BenchmarkGetSizeRange107374182401(b *testing.B) {
+	var r string
 	val := int64(107374182401)
 	for n := 0; n < b.N; n++ {
-		getSizeRange(&val)
+		r = getSizeRange(&val)
 	}
+	resultGetSizeRange = r
 }
+
 func BenchmarkGetSizeRange1048579(b *testing.B) {
+	var r string
 	val := int64(1048579)
 	for n := 0; n < b.N; n++ {
-		getSizeRange(&val)
+		r = getSizeRange(&val)
 	}
+	resultGetSizeRange = r
 }
 func BenchmarkGetSizeRange1(b *testing.B) {
+	var r string
 	val := int64(1)
 	for n := 0; n < b.N; n++ {
-		getSizeRange(&val)
+		r = getSizeRange(&val)
 	}
+	resultGetSizeRange = r
 }
 
 func TestGetSizeRange(t *testing.T) {
