@@ -5,6 +5,7 @@ attributes for one or all of your s3 buckets.
 
 ## Table of Contents
 
+  * [Installation](#installation)
   * [Usage](#usage)
     * [Scan all your buckets](#scan-all-your-buckets)
     * [Excluding buckets](#excluding-buckets)
@@ -14,6 +15,14 @@ attributes for one or all of your s3 buckets.
     * [report of type summary](#report-of-type-summary)
     * [report of type details](#report-of-type-details)
     * [report of type full](#report-of-type-full)
+
+## Installation
+
+S3 reporter requires a somewhat recent version of Golang (only tested on 1.8 or later).
+
+```
+go get -u github.com/aerostitch/joeyzTools/aws/s3_reporter
+```
 
 ## Usage
 
