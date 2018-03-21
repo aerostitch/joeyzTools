@@ -1,6 +1,8 @@
 package main
 
 import (
+	"bytes"
+	"encoding/csv"
 	"reflect"
 	"sync"
 	"testing"
@@ -291,6 +293,31 @@ func TestIncrementUint64(t *testing.T) {
 		incrementUint64(m, d.inputM, d.inputK)
 		if !reflect.DeepEqual(d.inputM, d.expected) {
 			t.Errorf("Expecting %v, got %v", d.expected, d.inputM)
+		}
+	}
+}
+
+func TestReportUint64(t *testing.T) {
+	testData := []struct {
+		inputMap       map[string]uint64
+		inputTitle     string
+		inputHeaders   []string
+		expectedOutput string
+		Error          error
+	}{
+		{map[string]uint64{}, "my title", []string{"Key", "Value"}, "", nil},
+		{map[string]uint64{"foo": 1, "bar": 2}, "my title", []string{"Key", "Value"}, "my title\nKey,Value\nbar,2\nfoo,1\n\n", nil},
+		{map[string]uint64{"foo": 1, "bar": 2, "curry": 1024}, "my title", []string{"Key", "Value"}, "my title\nKey,Value\nbar,2\ncurry,1024\nfoo,1\n\n", nil},
+	}
+	for n, d := range testData {
+		b := &bytes.Buffer{}
+		f := csv.NewWriter(b)
+		if err := reportUint64(f, d.inputMap, d.inputTitle, d.inputHeaders); err != d.Error {
+			t.Errorf("Unexpected error:\ngot  %v\nwant %v", err, d.Error)
+		}
+		out := b.String()
+		if out != d.expectedOutput {
+			t.Errorf("#%d: out=%q want %q", n, out, d.expectedOutput)
 		}
 	}
 }

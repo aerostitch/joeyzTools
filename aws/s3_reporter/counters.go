@@ -275,6 +275,8 @@ func reportByRoot(csvWriter *csv.Writer, bucket string, ctr *bucketCounter) erro
 	return err
 }
 
+// reportUint64 exports in a csv format a map[string]uint64 under a give title
+// and set of headers
 func reportUint64(csvWriter *csv.Writer, ctr map[string]uint64, title string, headers []string) error {
 	var err error
 	if len(ctr) > 0 {
