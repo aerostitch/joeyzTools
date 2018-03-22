@@ -3,6 +3,8 @@ package main
 import (
 	"bytes"
 	"encoding/csv"
+	"errors"
+	"io"
 	"reflect"
 	"sync"
 	"testing"
@@ -297,23 +299,44 @@ func TestIncrementUint64(t *testing.T) {
 	}
 }
 
+type failWriter struct {
+	w io.Writer
+	e error
+}
+
+// Using this to test errors on failed writes
+func FailWriter(w io.Writer, e error) io.Writer {
+	return &failWriter{w, e}
+}
+
+func (t *failWriter) Write(p []byte) (n int, err error) {
+	if t.e != nil {
+		return 0, t.e
+	}
+	// real write
+	return t.w.Write(p)
+}
+
 func TestReportUint64(t *testing.T) {
 	testData := []struct {
 		inputMap       map[string]uint64
 		inputTitle     string
 		inputHeaders   []string
+		inputError     error
 		expectedOutput string
 		Error          error
 	}{
-		{map[string]uint64{}, "my title", []string{"Key", "Value"}, "", nil},
-		{map[string]uint64{"foo": 1, "bar": 2}, "my title", []string{"Key", "Value"}, "my title\nKey,Value\nbar,2\nfoo,1\n\n", nil},
-		{map[string]uint64{"foo": 1, "bar": 2, "curry": 1024}, "my title", []string{"Key", "Value"}, "my title\nKey,Value\nbar,2\ncurry,1024\nfoo,1\n\n", nil},
+		{map[string]uint64{}, "my title", []string{"Key", "Value"}, nil, "", nil},
+		{map[string]uint64{"foo": 1, "bar": 2}, "my title", []string{"Key", "Value"}, nil, "my title\nKey,Value\nbar,2\nfoo,1\n\n", nil},
+		{map[string]uint64{"foo": 1, "bar": 2}, "my title", []string{"Key", "Value"}, errors.New("Writer random failure"), "", errors.New("Writer random failure")},
+		{map[string]uint64{"foo": 1, "bar": 2, "curry": 1024}, "my title", []string{"Key", "Value"}, nil, "my title\nKey,Value\nbar,2\ncurry,1024\nfoo,1\n\n", nil},
 	}
 	for n, d := range testData {
 		b := &bytes.Buffer{}
-		f := csv.NewWriter(b)
-		if err := reportUint64(f, d.inputMap, d.inputTitle, d.inputHeaders); err != d.Error {
-			t.Errorf("Unexpected error:\ngot  %v\nwant %v", err, d.Error)
+		w := FailWriter(b, d.inputError)
+		f := csv.NewWriter(w)
+		if err := reportUint64(f, d.inputMap, d.inputTitle, d.inputHeaders); !reflect.DeepEqual(err, d.Error) {
+			t.Errorf("#%d: unexpected error:\ngot  %v\nwant %v", n, err, d.Error)
 		}
 		out := b.String()
 		if out != d.expectedOutput {

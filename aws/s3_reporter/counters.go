@@ -301,6 +301,7 @@ func reportUint64(csvWriter *csv.Writer, ctr map[string]uint64, title string, he
 			return err
 		}
 		csvWriter.Flush()
+		err = csvWriter.Error()
 	}
 	return err
 }
