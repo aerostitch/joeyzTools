@@ -13,6 +13,8 @@ Usage:
 Arguments:
 
 
+	-new-topic -new-topic
+	      If you want to add a tag to all the repos that have been updated, you can specify it with the -new-topic flag.
 	-organization string
 	      Name of the organization you want to work on.
 	-permission string

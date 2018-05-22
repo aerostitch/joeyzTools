@@ -13,6 +13,8 @@ Usage:
 
 Arguments:
 
+  -new-topic -new-topic
+        If you want to add a tag to all the repos that have been updated, you can specify it with the -new-topic flag.
   -organization string
         Name of the organization you want to work on.
   -permission string
@@ -38,10 +40,11 @@ import (
 var client *github.Client
 var ctx = context.Background()
 var (
-	providedOrg   = flag.String("organization", "", "Name of the organization you want to work on.")
-	providedTeam  = flag.String("team", "", "Name of the team you want to assign the permission to when the repo has the given topic.")
-	providedPerm  = flag.String("permission", "", "Permission (pull, push or admin) that you want to give to the team on the selected repositories of the org.")
-	providedTopic = flag.String("topic", "", "Topic that will be used to select the repositories of the organization to add the permissions to.")
+	providedOrg      = flag.String("organization", "", "Name of the organization you want to work on.")
+	providedTeam     = flag.String("team", "", "Name of the team you want to assign the permission to when the repo has the given topic.")
+	providedPerm     = flag.String("permission", "", "Permission (pull, push or admin) that you want to give to the team on the selected repositories of the org.")
+	providedTopic    = flag.String("topic", "", "Topic that will be used to select the repositories of the organization to add the permissions to.")
+	providedNewTopic = flag.String("new-topic", "", "If you want to add a tag to all the repos that have been updated, you can specify it with the `-new-topic` flag.")
 )
 
 // listAllRepos returns all the repo with a given type (all, public, private, forks, sources, member) in a given org
@@ -141,6 +144,12 @@ func main() {
 		log.Printf("%s\n", *repo.Name)
 		if err := setRepoTeam(teamID, *providedOrg, *repo.Name, *providedPerm); err != nil {
 			log.Fatalf("Error while checking team for https://github.com/%s/%s: %s", *providedOrg, *repo.Name, err)
+		}
+		if *providedNewTopic != "" {
+			repo.Topics = append(repo.Topics, *providedNewTopic)
+			if _, _, err := client.Repositories.ReplaceAllTopics(ctx, *providedOrg, *repo.Name, repo.Topics); err != nil {
+				log.Fatalf("Error while adding the new topic to https://github.com/%s/%s: %s", *providedOrg, *repo.Name, err)
+			}
 		}
 	}
 }
