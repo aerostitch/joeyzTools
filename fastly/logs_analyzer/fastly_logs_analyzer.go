@@ -207,7 +207,12 @@ func processLocalFile(path string, dataPipe chan *accessLogEntry) {
 		log.Printf("Error while reading file %s: %s\n", path, err)
 	}
 	defer inFile.Close()
-	scanner := bufio.NewScanner(inFile)
+	rdr, err := gzip.NewReader(inFile)
+	if err != nil {
+		log.Println(err)
+	}
+	defer rdr.Close()
+	scanner := bufio.NewScanner(rdr)
 	scanner.Split(bufio.ScanLines)
 
 	for scanner.Scan() {
