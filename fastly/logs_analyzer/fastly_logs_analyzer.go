@@ -427,8 +427,8 @@ func generateReport(user, pwd, host, database, tableName, reportPath string) {
 	queries := []struct {
 		title, query string
 	}{
-		{"Requests per day", "select CONCAT(year, '-', month, '-', day) as date, count(*) as nbrcalls from `" + tableName + "` where responseCode='200' and userAgent not like 'Pingdom%' and userAgent != 'ZmEu' group by year, month, day order by year, month, day, nbrcalls"},
-		{"Requests per day per user agent ", "select CONCAT(year, '-', month, '-', day) as date, userAgent, count(*) as nbrcalls from `" + tableName + "` where responseCode='200' and userAgent not like 'Pingdom%' and userAgent != 'ZmEu' group by year, month, day, userAgent order by year, month, day, userAgent, nbrcalls"},
+		{"Requests per day", "select CONCAT(year, '-', month, '-', day) as date, sum(bytes) as total_bytes, count(*) as nbrcalls from `" + tableName + "` where responseCode='200' and userAgent not like 'Pingdom%' and userAgent != 'ZmEu' group by year, month, day order by year, month, day, total_bytes, nbrcalls"},
+		{"Requests per day per user agent ", "select CONCAT(year, '-', month, '-', day) as date, userAgent, sum(bytes) as total_bytes, count(*) as nbrcalls from `" + tableName + "` where responseCode='200' and userAgent not like 'Pingdom%' and userAgent != 'ZmEu' group by year, month, day, userAgent order by year, month, day, total_bytes, userAgent, nbrcalls"},
 		{"Bytes by bitrate", "select bitrate, sum(bytes) as total_bytes, count(*) as nbrcalls from `" + tableName + "` where responseCode='200' and userAgent not like 'Pingdom%' and userAgent != 'ZmEu' group by bitrate order by total_bytes desc"},
 		{"Bytes by user agent", "select userAgent, sum(bytes) as total_bytes, count(*) as nbrcalls from `" + tableName + "` where responseCode='200' and userAgent not like 'Pingdom%' and userAgent != 'ZmEu' group by userAgent order by total_bytes desc"},
 	}
