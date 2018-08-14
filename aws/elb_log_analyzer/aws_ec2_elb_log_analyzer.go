@@ -370,6 +370,7 @@ func generateReport(user, pwd, host, database, tableName, reportPath string) {
 		{"Top 10 raw uri path", "select * from (select SUBSTRING_INDEX(uri,'?', 1) as uri, count(*) as nbrcalls from `" + tableName + "` where userAgent not like 'Pingdom%' and userAgent != 'ZmEu' group by SUBSTRING_INDEX(uri, '?', 1) order by nbrcalls desc) t limit 10"},
 		{"Top 10 source IP and response code", "select * from (select sourceIP, elbResponseCode, backendResponseCode, count(*) as nbrcalls from `" + tableName + "` where userAgent not like 'Pingdom%' and userAgent != 'ZmEu' group by sourceIP, elbResponseCode, backendResponseCode order by nbrcalls desc) t limit 10"},
 		{"Top 10 short uri path and response code", "select * from (select SUBSTRING_INDEX(SUBSTRING_INDEX(REPLACE(uri,'//','/'), '?', 1), '/', 3) as short_uri, elbResponseCode, backendResponseCode, count(*) as nbrcalls from `" + tableName + "` where userAgent not like 'Pingdom%' and userAgent != 'ZmEu' group by SUBSTRING_INDEX(SUBSTRING_INDEX(REPLACE(uri,'//','/'), '?', 1), '/', 3), elbResponseCode, backendResponseCode order by nbrcalls desc) t limit 10"},
+		{"Top 10 domains used to call the uri and response code", "select * from (select domain, elbResponseCode, backendResponseCode, count(*) as nbrcalls from `" + tableName + "` where userAgent not like 'Pingdom%' and userAgent != 'ZmEu' group by domain, elbResponseCode, backendResponseCode order by nbrcalls desc) t limit 10"},
 	}
 	for _, q := range queries {
 		if err = csvWriter.Write([]string{q.title}); err != nil {
