@@ -72,8 +72,8 @@ func listAllRepos(org, reposType string) ([]*github.Repository, error) {
 // setRepoTeam sets the given permission level to the given team on the given
 // repository
 func setRepoTeam(teamID int64, org, repoName, perm string) error {
-	permStruct := &github.OrganizationAddTeamRepoOptions{Permission: perm}
-	_, err := client.Organizations.AddTeamRepo(ctx, teamID, org, repoName, permStruct)
+	permStruct := &github.TeamAddTeamRepoOptions{Permission: perm}
+	_, err := client.Teams.AddTeamRepo(ctx, teamID, org, repoName, permStruct)
 	return err
 }
 
@@ -81,7 +81,7 @@ func setRepoTeam(teamID int64, org, repoName, perm string) error {
 func getTeamID(org, teamName string) (int64, error) {
 	opts := &github.ListOptions{}
 	for {
-		teams, resp, err := client.Organizations.ListTeams(ctx, org, opts)
+		teams, resp, err := client.Teams.ListTeams(ctx, org, opts)
 		if err != nil {
 			return -1, err
 		}
