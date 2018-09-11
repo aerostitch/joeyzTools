@@ -7,6 +7,8 @@ import (
 	"log"
 	"os"
 	"path"
+	"runtime"
+	"runtime/pprof"
 	"strings"
 	"sync"
 	"time"
@@ -21,6 +23,20 @@ import (
 
 var report map[string]*bucketCounter
 var reportMutex sync.Locker
+
+// Profiling vars
+var (
+	cpuprofile = flag.String("cpuprofile", "", "write cpu profile to `file`")
+	memprofile = flag.String("memprofile", "", "write memory profile to `file`")
+)
+
+// flags
+var (
+	reportPath     = flag.String("report-path", "/tmp/s3.csv", "Path to the csv report to generate. Environment variable: REPORT_PATH")
+	bucketsList    = flag.String("buckets", "", "Coma-separated list of bucket to scan. If none specified, all buckets will be scanned. Environment variable: BUCKETS")
+	bucketsExclude = flag.String("exclude-buckets", "", "Coma-separated list of bucket to exclude from the scan. Environment variable: EXCLUDE_BUCKETS")
+	reportType     = flag.String("report-type", "full", "Type of report to output. Allowed values 'summary' (only size and age global report), 'details' (only details tables for each bucket), 'full' (summary + details). Environment variable: REPORT_TYPE")
+)
 
 // getBucketsList returns the full list of buckets
 func getBucketsList(svc s3iface.S3API) ([]*string, error) {
@@ -87,7 +103,7 @@ func getBucketObjects(svc s3iface.S3API, bucketName *string, pageChan chan *s3.L
 // channel
 func processPage(pageChan chan *s3.ListObjectsV2Output, wg *sync.WaitGroup) {
 	for page := range pageChan {
-		log.Printf("1 page of %d objects fetched for bucket %s, %d object pages left in the queue", len(page.Contents), *page.Name, len(pageChan))
+		log.Printf("1 page of %d objects fetched for bucket %s", len(page.Contents), *page.Name)
 		for _, obj := range page.Contents {
 			getObjectStats(page.Name, obj)
 		}
@@ -150,16 +166,24 @@ func reportCsv(filePath, reportType string) {
 }
 
 func main() {
-	var reportPath, bucketsList, bucketsExclude, reportType string
-	flag.StringVar(&reportPath, "report-path", "/tmp/s3.csv", "Path to the csv report to generate. Environment variable: REPORT_PATH")
-	flag.StringVar(&bucketsList, "buckets", "", "Coma-separated list of bucket to scan. If none specified, all buckets will be scanned. Environment variable: BUCKETS")
-	flag.StringVar(&bucketsExclude, "exclude-buckets", "", "Coma-separated list of bucket to exclude from the scan. Environment variable: EXCLUDE_BUCKETS")
-	flag.StringVar(&reportType, "report-type", "full", "Type of report to output. Allowed values 'summary' (only size and age global report), 'details' (only details tables for each bucket), 'full' (summary + details). Environment variable: REPORT_TYPE")
 	envflag.Parse()
 
-	if reportType != "summary" && reportType != "details" && reportType != "full" {
+	if *reportType != "summary" && *reportType != "details" && *reportType != "full" {
 		log.Fatal("Incorrect report-type specified. Allowed values:\n - summary: only size and age global report\n - details: only details tables for each bucket\n - full: summary + details")
 	}
+
+	// PROFILING CPU BLOCK INIT
+	if *cpuprofile != "" {
+		f, err := os.Create(*cpuprofile)
+		if err != nil {
+			log.Fatal("could not create CPU profile: ", err)
+		}
+		if err := pprof.StartCPUProfile(f); err != nil {
+			log.Fatal("could not start CPU profile: ", err)
+		}
+		defer pprof.StopCPUProfile()
+	}
+	// PROFILING CPU BLOCK END
 
 	if report == nil {
 		report = make(map[string]*bucketCounter)
@@ -170,13 +194,13 @@ func main() {
 
 	svc := s3.New(sess)
 	var buckets []*string
-	if len(bucketsList) <= 0 {
+	if len(*bucketsList) <= 0 {
 		var err error
 		if buckets, err = getBucketsList(svc); err != nil {
 			log.Fatalf("Error while retrieving the buckets list: %s\n", err)
 		}
 	} else {
-		for _, b := range strings.Split(bucketsList, ",") {
+		for _, b := range strings.Split(*bucketsList, ",") {
 			bucket := b
 			buckets = append(buckets, &bucket)
 		}
@@ -196,7 +220,7 @@ func main() {
 		go bucketWorker(sess, *sess.Config.Region, svc, bucketsChan, &wgBucket, pageChan)
 	}
 
-	skipBuckets := strings.Split(bucketsExclude, ",")
+	skipBuckets := strings.Split(*bucketsExclude, ",")
 BUCKETS_LOOP:
 	for _, b := range buckets {
 		for _, skip := range skipBuckets {
@@ -217,5 +241,19 @@ BUCKETS_LOOP:
 	close(pageChan)
 	wg.Wait()
 
-	reportCsv(reportPath, reportType)
+	reportCsv(*reportPath, *reportType)
+
+	// MEMORY PROFILING BLOCK INIT
+	if *memprofile != "" {
+		f, err := os.Create(*memprofile)
+		if err != nil {
+			log.Fatal("could not create memory profile: ", err)
+		}
+		runtime.GC() // get up-to-date statistics
+		if err := pprof.WriteHeapProfile(f); err != nil {
+			log.Fatal("could not write memory profile: ", err)
+		}
+		f.Close()
+	}
+	// MEMORY PROFILING BLOCK END
 }
